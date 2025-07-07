@@ -95,19 +95,54 @@ Nautilus::Record ArrayAggregationPhysicalFunction::lower(
         +[](const Nautilus::Interface::PagedVector* pagedVector)
         {
             const auto numberOfEntriesVal = pagedVector->getTotalNumberOfEntries();
-            INVARIANT(numberOfEntriesVal > 0, "The number of entries in the paged vector must be greater than 0");
             return numberOfEntriesVal;
         },
         pagedVectorPtr);
 
-    auto entrySize = memProviderPagedVector->getMemoryLayout()->getSchema().getSizeOfSchemaInBytes();
+    // Handle empty array case
+    if (numberOfEntries == nautilus::val<size_t>(0))
+    {
+        // Allocate minimal space for empty array
+        auto variableSized = pipelineMemoryProvider.arena.allocateVariableSizedData(0);
+        Nautilus::Record resultRecord;
+        resultRecord.write(resultFieldIdentifier, variableSized);
+        return resultRecord;
+    }
 
-    auto variableSized = pipelineMemoryProvider.arena.allocateVariableSizedData(numberOfEntries * entrySize);
+    // First, count the actual number of elements and calculate total size
+    size_t totalSize = 0;
+    size_t elementCount = 0;
+    
+    // Count elements and calculate size
+    const auto countEndIt = pagedVectorRef.end(allFieldNames);
+    for (auto candidateIt = pagedVectorRef.begin(allFieldNames); candidateIt != countEndIt; ++candidateIt)
+    {
+        const auto itemRecord = *candidateIt;
+        const auto itemValue = itemRecord.read(std::string(StateFieldName));
+        itemValue.customVisit(
+            [&]<typename T>(const T& type) -> VarVal
+            {
+                if constexpr (std::is_same_v<T, VariableSizedData>)
+                {
+                    throw std::runtime_error("VariableSizedData is not supported in ArrayAggregationPhysicalFunction");
+                }
+                else
+                {
+                    totalSize += sizeof(typename T::raw_type);
+                    elementCount++;
+                }
+                return type;
+            });
+    }
 
-    /// Copy from paged vector
-    const auto endIt = pagedVectorRef.end(allFieldNames);
+    auto variableSized = pipelineMemoryProvider.arena.allocateVariableSizedData(totalSize);
+
+    /// Copy from paged vector - create new iterators for second pass
     auto current = variableSized.getContent();
-    for (auto candidateIt = pagedVectorRef.begin(allFieldNames); candidateIt != endIt; ++candidateIt)
+    
+    // Second iteration to actually copy the data
+    const auto copyEndIt = pagedVectorRef.end(allFieldNames);
+    for (auto candidateIt = pagedVectorRef.begin(allFieldNames); candidateIt != copyEndIt; ++candidateIt)
     {
         const auto itemRecord = *candidateIt;
         const auto itemValue = itemRecord.read(std::string(StateFieldName));

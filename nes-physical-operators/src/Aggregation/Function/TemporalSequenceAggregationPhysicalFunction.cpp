@@ -134,7 +134,13 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
     // Each point consists of: lon (8 bytes) + lat (8 bytes) + timestamp (8 bytes) = 24 bytes
     constexpr size_t pointSize = sizeof(double) + sizeof(double) + sizeof(uint64_t);
     // Header: count (8 bytes) + data
-    auto totalSize = sizeof(uint64_t) + (numberOfEntries * pointSize);
+    // Convert numberOfEntries to raw size_t for calculation
+    const auto totalSize = nautilus::invoke(
+        +[](size_t entries) -> size_t
+        {
+            return sizeof(uint64_t) + (entries * pointSize);
+        },
+        numberOfEntries);
 
     auto variableSized = pipelineMemoryProvider.arena.allocateVariableSizedData(totalSize);
 
