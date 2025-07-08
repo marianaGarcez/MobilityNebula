@@ -15,6 +15,7 @@
 #include <Aggregation/Function/ArrayAggregationPhysicalFunction.hpp>
 
 #include <ErrorHandling.hpp>
+#include <Util/Logger/Logger.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -54,11 +55,15 @@ ArrayAggregationPhysicalFunction::ArrayAggregationPhysicalFunction(
 void ArrayAggregationPhysicalFunction::lift(
     const nautilus::val<AggregationState*>& aggregationState, ExecutionContext& executionContext, const Nautilus::Record& record)
 {
+    std::cerr << "ArrayAggregationPhysicalFunction::lift - Starting lift operation" << std::endl;
+    NES_DEBUG("ArrayAggregationPhysicalFunction::lift - Starting lift operation");
     const auto memArea = static_cast<nautilus::val<int8_t*>>(aggregationState);
     Record aggregateStateRecord(
         {{std::string(StateFieldName), inputFunction.execute(record, executionContext.pipelineMemoryProvider.arena)}});
     const Nautilus::Interface::PagedVectorRef pagedVectorRef(memArea, memProviderPagedVector);
     pagedVectorRef.writeRecord(aggregateStateRecord, executionContext.pipelineMemoryProvider.bufferProvider);
+    NES_DEBUG("ArrayAggregationPhysicalFunction::lift - Completed lift operation");
+    std::cerr << "ArrayAggregationPhysicalFunction::lift - Completed lift operation" << std::endl;
 }
 
 void ArrayAggregationPhysicalFunction::combine(
@@ -82,6 +87,8 @@ void ArrayAggregationPhysicalFunction::combine(
 Nautilus::Record ArrayAggregationPhysicalFunction::lower(
     const nautilus::val<AggregationState*> aggregationState, PipelineMemoryProvider& pipelineMemoryProvider)
 {
+    NES_DEBUG("ArrayAggregationPhysicalFunction::lower - Starting lower operation");
+    
     /// Get the PagedVector pointer from the aggregation state
     const auto pagedVectorPtr = nautilus::invoke(
         +[](AggregationState* state) -> Nautilus::Interface::PagedVector*
@@ -98,10 +105,15 @@ Nautilus::Record ArrayAggregationPhysicalFunction::lower(
             return numberOfEntriesVal;
         },
         pagedVectorPtr);
+    
+    invoke(+[](size_t n) { 
+        NES_DEBUG("ArrayAggregationPhysicalFunction::lower - Number of entries: {}", n); 
+    }, numberOfEntries);
 
     // Handle empty array case
     if (numberOfEntries == nautilus::val<size_t>(0))
     {
+        NES_DEBUG("ArrayAggregationPhysicalFunction::lower - Empty array case, returning empty result");
         // Allocate minimal space for empty array
         auto variableSized = pipelineMemoryProvider.arena.allocateVariableSizedData(0);
         Nautilus::Record resultRecord;
@@ -109,44 +121,71 @@ Nautilus::Record ArrayAggregationPhysicalFunction::lower(
         return resultRecord;
     }
 
-    // First, count the actual number of elements and calculate total size
-    size_t totalSize = 0;
-    size_t elementCount = 0;
-    
-    // Count elements and calculate size
-    const auto countEndIt = pagedVectorRef.end(allFieldNames);
-    for (auto candidateIt = pagedVectorRef.begin(allFieldNames); candidateIt != countEndIt; ++candidateIt)
+    // Get element size based on input type
+    size_t elementSize = 0;
+    switch (inputType.type)
     {
-        const auto itemRecord = *candidateIt;
-        const auto itemValue = itemRecord.read(std::string(StateFieldName));
-        itemValue.customVisit(
-            [&]<typename T>(const T& type) -> VarVal
-            {
-                if constexpr (std::is_same_v<T, VariableSizedData>)
-                {
-                    throw std::runtime_error("VariableSizedData is not supported in ArrayAggregationPhysicalFunction");
-                }
-                else
-                {
-                    totalSize += sizeof(typename T::raw_type);
-                    elementCount++;
-                }
-                return type;
-            });
+        case DataType::Type::UINT8:
+            elementSize = sizeof(uint8_t);
+            break;
+        case DataType::Type::INT8:
+            elementSize = sizeof(int8_t);
+            break;
+        case DataType::Type::UINT16:
+            elementSize = sizeof(uint16_t);
+            break;
+        case DataType::Type::INT16:
+            elementSize = sizeof(int16_t);
+            break;
+        case DataType::Type::UINT32:
+            elementSize = sizeof(uint32_t);
+            break;
+        case DataType::Type::INT32:
+            elementSize = sizeof(int32_t);
+            break;
+        case DataType::Type::UINT64:
+            elementSize = sizeof(uint64_t);
+            break;
+        case DataType::Type::INT64:
+            elementSize = sizeof(int64_t);
+            break;
+        case DataType::Type::FLOAT32:
+            elementSize = sizeof(float);
+            break;
+        case DataType::Type::FLOAT64:
+            elementSize = sizeof(double);
+            break;
+        case DataType::Type::BOOLEAN:
+            elementSize = sizeof(bool);
+            break;
+        default:
+            throw std::runtime_error("Unsupported type in ArrayAggregationPhysicalFunction");
     }
 
-    auto variableSized = pipelineMemoryProvider.arena.allocateVariableSizedData(totalSize);
-
-    /// Copy from paged vector - create new iterators for second pass
-    auto current = variableSized.getContent();
+    // Calculate total size - multiply nautilus::val with regular size_t
+    auto totalSize = numberOfEntries * elementSize;
+    invoke(+[](size_t total) { 
+        NES_DEBUG("ArrayAggregationPhysicalFunction::lower - Total size for array: {}", total); 
+    }, totalSize);
+    NES_DEBUG("ArrayAggregationPhysicalFunction::lower - Element size: {}", elementSize);
     
-    // Second iteration to actually copy the data
-    const auto copyEndIt = pagedVectorRef.end(allFieldNames);
-    for (auto candidateIt = pagedVectorRef.begin(allFieldNames); candidateIt != copyEndIt; ++candidateIt)
+    auto variableSized = pipelineMemoryProvider.arena.allocateVariableSizedData(totalSize);
+    auto current = variableSized.getContent();
+
+    invoke(+[](size_t n) { 
+        NES_DEBUG("ArrayAggregationPhysicalFunction::lower - Starting loop to copy {} elements", n); 
+    }, numberOfEntries);
+    
+    // Use indexed access to avoid iterator bugs
+    for (nautilus::val<size_t> i = 0; i < numberOfEntries; i = i + 1)
     {
-        const auto itemRecord = *candidateIt;
+        invoke(+[](size_t idx) { 
+            NES_DEBUG("ArrayAggregationPhysicalFunction::lower - Processing element {}", idx); 
+        }, i);
+        
+        const auto itemRecord = pagedVectorRef.readRecord(i, allFieldNames);
         const auto itemValue = itemRecord.read(std::string(StateFieldName));
-        auto _ = itemValue.customVisit(
+        itemValue.customVisit(
             [&]<typename T>(const T& type) -> VarVal
             {
                 if constexpr (std::is_same_v<T, VariableSizedData>)
@@ -161,15 +200,19 @@ Nautilus::Record ArrayAggregationPhysicalFunction::lower(
                 return type;
             });
     }
+    
+    NES_DEBUG("ArrayAggregationPhysicalFunction::lower - Completed copying all elements");
 
     Nautilus::Record resultRecord;
     resultRecord.write(resultFieldIdentifier, variableSized);
 
+    NES_DEBUG("ArrayAggregationPhysicalFunction::lower - Completed lower operation, returning result");
     return resultRecord;
 }
 
 void ArrayAggregationPhysicalFunction::reset(const nautilus::val<AggregationState*> aggregationState, PipelineMemoryProvider&)
 {
+    NES_DEBUG("ArrayAggregationPhysicalFunction::reset - Resetting aggregation state");
     nautilus::invoke(
         +[](AggregationState* pagedVectorMemArea) -> void
         {
@@ -181,6 +224,7 @@ void ArrayAggregationPhysicalFunction::reset(const nautilus::val<AggregationStat
             new (pagedVector) Nautilus::Interface::PagedVector();
         },
         aggregationState);
+    NES_DEBUG("ArrayAggregationPhysicalFunction::reset - Reset completed");
 }
 
 size_t ArrayAggregationPhysicalFunction::getSizeOfStateInBytes() const
