@@ -1,0 +1,47 @@
+# TCP Query - Connects to host machine from Docker
+# Uses host.docker.internal to reach the Mac host
+
+query: |
+  SELECT timestamp, device_id, temperature, pressure, humidity
+  FROM sensor_stream
+  WHERE temperature > FLOAT64(25.0) OR pressure < FLOAT64(1000.0)
+  INTO alerts;
+
+sink:
+  name: alerts
+  type: FILE
+  config:
+    filePath: /workspace/tcp_host_alerts.csv
+    append: "true"
+    inputFormat: CSV
+
+logical:
+  - name: sensor_stream
+    schema:
+      - name: timestamp
+        type: UINT64
+      - name: device_id
+        type: UINT64
+      - name: temperature
+        type: FLOAT64
+      - name: pressure
+        type: FLOAT64
+      - name: humidity
+        type: FLOAT64
+      - name: status
+        type: UINT64
+
+physical:
+  - logical: sensor_stream
+    sourceConfig:
+      type: TCP
+      socketHost: "host.docker.internal"  # Special Docker hostname for host machine
+      socketPort: "9999"
+      socketDomain: "AF_INET"
+      socketType: "SOCK_STREAM"
+      connectTimeoutSeconds: 30
+      socketBufferSize: 1024
+      flushIntervalMS: 100
+    parserConfig:
+      type: CSV
+      delimiter: ","

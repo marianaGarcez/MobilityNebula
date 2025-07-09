@@ -1,0 +1,61 @@
+# name: function/spatiotemporal/MEOS_Intersects_Basic.test
+# description: Test TEMPORAL_INTERSECTS function with MEOS wrapper
+# groups: [Function, MEOS, SpatioTemporal]
+
+# Test 1: Basic intersection test - points that match the hardcoded location
+Source locations UINT32 id FLOAT64 longitude FLOAT64 latitude UINT64 timestamp VARSIZED name INLINE
+1,-73.9857,40.7484,1609459200,"Times Square"
+2,-74.0060,40.7128,1609459200,"Wall Street"
+3,-73.9857,40.7484,1609459260,"Times Square Later"
+4,-73.9851,40.7580,1609459200,"Central Park"
+5,-73.9857,40.7484,1609459320,"Times Square Even Later"
+
+SINK intersect_result UINT32 locations$id VARSIZED locations$name BOOLEAN locations$intersects
+
+SELECT id, name, TEMPORAL_INTERSECTS(longitude, latitude, timestamp) AS intersects
+FROM locations
+INTO intersect_result
+----
+1,"Times Square",1
+2,"Wall Street",0
+3,"Times Square Later",1
+4,"Central Park",0
+5,"Times Square Even Later",1
+
+# Test 2: Filter locations using TEMPORAL_INTERSECTS in WHERE clause
+Source vehicle_positions UINT32 vehicle_id FLOAT64 lon FLOAT64 lat UINT64 ts FLOAT64 speed INLINE
+101,-73.9857,40.7484,1609459200,25.5
+102,-74.0060,40.7128,1609459200,30.2
+103,-73.9857,40.7484,1609459260,15.0
+104,-73.9900,40.7300,1609459200,45.0
+105,-73.9857,40.7484,1609459320,20.0
+106,-73.9787,40.7505,1609459200,35.5
+
+SINK matching_vehicles UINT32 vehicle_positions$vehicle_id FLOAT64 vehicle_positions$speed
+
+SELECT vehicle_id, speed
+FROM vehicle_positions
+WHERE TEMPORAL_INTERSECTS(lon, lat, ts) == BOOLEAN(1)
+INTO matching_vehicles
+----
+101,25.5
+103,15.0
+105,20.0
+
+# Test 3: Combine TEMPORAL_INTERSECTS with other conditions
+Source sensor_readings UINT32 sensor_id FLOAT64 x FLOAT64 y UINT64 time_ms FLOAT64 temperature INLINE
+1,-73.9857,40.7484,1609459200,72.5
+2,-73.9857,40.7484,1609459260,68.3
+3,-74.0060,40.7128,1609459200,70.1
+4,-73.9857,40.7484,1609459320,65.0
+5,-73.9900,40.7300,1609459200,71.2
+
+SINK hot_intersecting_sensors UINT32 sensor_readings$sensor_id FLOAT64 sensor_readings$temperature
+
+SELECT sensor_id, temperature
+FROM sensor_readings
+WHERE TEMPORAL_INTERSECTS(x, y, time_ms) == BOOLEAN(1) AND temperature > FLOAT64(68.0)
+INTO hot_intersecting_sensors
+----
+1,72.5
+2,68.3
