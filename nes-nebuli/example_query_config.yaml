@@ -1,0 +1,148 @@
+# Example Query Configuration for NebulaStream nes-nebuli
+# This file demonstrates how to configure queries using the YAML format
+
+# SQL Query - Define your query using SQL syntax
+query: |
+  SELECT f1, f2, COUNT(*) as count
+  FROM Source1
+  WHERE f1 > 10
+  GROUP BY f1, f2
+
+# Sink Configuration - Where query results will be sent
+sink:
+  name: mySink
+  type: FILE_SINK
+  config:
+    filePath: "/tmp/output.csv"
+    inputFormat: "CSV"
+    
+# Alternative sink types:
+# sink:
+#   name: tcpSink
+#   type: TCP_SINK
+#   config:
+#     host: "localhost"
+#     port: "9000"
+#     inputFormat: "JSON"
+
+# Logical Sources - Define the schema for your data sources
+logical:
+  - name: Source1
+    schema:
+      - name: f1
+        type: INT32
+      - name: f2
+        type: FLOAT32
+      - name: timestamp
+        type: UINT64
+        
+  - name: Source2
+    schema:
+      - name: x
+        type: FLOAT64
+      - name: y
+        type: FLOAT64
+      - name: label
+        type: STRING
+
+# Physical Sources - Map logical sources to actual data sources
+physical:
+  - logical: Source1
+    # Parser configuration for data format
+    parserConfig:
+      CSV_HAS_HEADER: "true"
+      CSV_DELIMITER: ","
+    # Source configuration
+    sourceConfig:
+      SOURCE_TYPE: CSV_SOURCE
+      FILE_PATH: "/path/to/data.csv"
+      NUMBER_OF_BUFFERS_IN_LOCAL_POOL: "64"
+      
+  # Alternative physical source configurations:
+  
+  # TCP Source
+  # - logical: Source1
+  #   parserConfig:
+  #     inputFormat: "JSON"
+  #   sourceConfig:
+  #     SOURCE_TYPE: TCP_SOURCE
+  #     SOCKET_HOST: "localhost"
+  #     SOCKET_PORT: "12345"
+  #     SOCKET_DOMAIN: "AF_INET"
+  #     SOCKET_TYPE: "SOCK_STREAM"
+  
+  # MQTT Source
+  # - logical: Source1
+  #   parserConfig:
+  #     inputFormat: "CSV"
+  #   sourceConfig:
+  #     SOURCE_TYPE: MQTT_SOURCE
+  #     URL: "tcp://localhost:1883"
+  #     CLIENT_ID: "nes-client"
+  #     TOPIC: "sensor/data"
+  #     QOS: "1"
+  
+  # Kafka Source
+  # - logical: Source1
+  #   parserConfig:
+  #     inputFormat: "JSON"
+  #   sourceConfig:
+  #     SOURCE_TYPE: KAFKA_SOURCE
+  #     BROKERS: "localhost:9092"
+  #     TOPIC: "sensor-topic"
+  #     GROUP_ID: "nes-consumer-group"
+
+# Models Configuration (optional, requires NES_ENABLE_INFERENCE)
+# models:
+#   - name: myModel
+#     path: "/path/to/model.onnx"
+#     inputs:
+#       - FLOAT32
+#       - FLOAT32
+#     outputs:
+#       - name: prediction
+#         type: FLOAT32
+#       - name: confidence
+#         type: FLOAT32
+
+# Example queries with different operators:
+
+# 1. Simple Selection
+# query: "SELECT * FROM Source1 WHERE f1 > 100"
+
+# 2. Projection
+# query: "SELECT f1, f2 * 2 as doubled FROM Source1"
+
+# 3. Aggregation with Window
+# query: |
+#   SELECT f1, AVG(f2) as avg_f2
+#   FROM Source1
+#   WINDOW TUMBLING SIZE 10 SECONDS
+#   GROUP BY f1
+
+# 4. Join
+# query: |
+#   SELECT s1.f1, s2.x
+#   FROM Source1 as s1, Source2 as s2
+#   WHERE s1.f1 = s2.x
+
+# 5. With Model Inference (requires models configuration)
+# query: |
+#   SELECT f1, f2, INFER(myModel, f1, f2) as prediction
+#   FROM Source1
+
+# Common Data Types:
+# - INT8, INT16, INT32, INT64
+# - UINT8, UINT16, UINT32, UINT64
+# - FLOAT32, FLOAT64
+# - BOOLEAN
+# - STRING
+# - CHAR
+# - ARRAY<type>
+
+# Usage:
+# Register query: nebuli register -s localhost:8080 -i example_query_config.yaml
+# Register and start: nebuli register -s localhost:8080 -i example_query_config.yaml -x
+# Start query: nebuli start <queryId> -s localhost:8080
+# Stop query: nebuli stop <queryId> -s localhost:8080
+# Unregister: nebuli unregister <queryId> -s localhost:8080
