@@ -37,7 +37,9 @@
 namespace NES
 {
 
-constexpr static std::string_view StateFieldName = "value";
+constexpr static std::string_view LonFieldName = "lon";
+constexpr static std::string_view LatFieldName = "lat";
+constexpr static std::string_view TimestampFieldName = "timestamp";
 
 TemporalSequenceAggregationPhysicalFunction::TemporalSequenceAggregationPhysicalFunction(
     DataType inputType,
@@ -47,16 +49,47 @@ TemporalSequenceAggregationPhysicalFunction::TemporalSequenceAggregationPhysical
     std::shared_ptr<Nautilus::Interface::MemoryProvider::TupleBufferMemoryProvider> memProviderPagedVector)
     : AggregationPhysicalFunction(std::move(inputType), std::move(resultType), std::move(inputFunction), std::move(resultFieldIdentifier))
     , memProviderPagedVector(std::move(memProviderPagedVector))
+    , lonFunction(inputFunction)
+    , latFunction(inputFunction)
+    , timestampFunction(inputFunction)
+{
+}
+
+TemporalSequenceAggregationPhysicalFunction::TemporalSequenceAggregationPhysicalFunction(
+    DataType inputType,
+    DataType resultType,
+    PhysicalFunction lonFunction,
+    PhysicalFunction latFunction,
+    PhysicalFunction timestampFunction,
+    Nautilus::Record::RecordFieldIdentifier resultFieldIdentifier,
+    std::shared_ptr<Nautilus::Interface::MemoryProvider::TupleBufferMemoryProvider> memProviderPagedVector)
+    : AggregationPhysicalFunction(std::move(inputType), std::move(resultType), std::move(lonFunction), std::move(resultFieldIdentifier))
+    , memProviderPagedVector(std::move(memProviderPagedVector))
+    , lonFunction(std::move(lonFunction))
+    , latFunction(std::move(latFunction))
+    , timestampFunction(std::move(timestampFunction))
 {
 }
 
 void TemporalSequenceAggregationPhysicalFunction::lift(
     const nautilus::val<AggregationState*>& aggregationState, ExecutionContext& executionContext, const Nautilus::Record& record)
 {
-    const auto memArea = static_cast<nautilus::val<int8_t*>>(aggregationState);
-    Record aggregateStateRecord(
-        {{std::string(StateFieldName), inputFunction.execute(record, executionContext.pipelineMemoryProvider.arena)}});
-    const Nautilus::Interface::PagedVectorRef pagedVectorRef(memArea, memProviderPagedVector);
+    // Cast to PagedVector pointer consistently with combine() and lower()
+    const auto pagedVectorPtr = static_cast<nautilus::val<Nautilus::Interface::PagedVector*>>(aggregationState);
+    
+    // For TEMPORAL_SEQUENCE, we need to store lon, lat, and timestamp values
+    auto lonValue = lonFunction.execute(record, executionContext.pipelineMemoryProvider.arena);
+    auto latValue = latFunction.execute(record, executionContext.pipelineMemoryProvider.arena);
+    auto timestampValue = timestampFunction.execute(record, executionContext.pipelineMemoryProvider.arena);
+    
+    // Create a record with all three fields for temporal sequence
+    Record aggregateStateRecord({
+        {std::string(LonFieldName), lonValue},
+        {std::string(LatFieldName), latValue},
+        {std::string(TimestampFieldName), timestampValue}
+    });
+    
+    const Nautilus::Interface::PagedVectorRef pagedVectorRef(pagedVectorPtr, memProviderPagedVector);
     pagedVectorRef.writeRecord(aggregateStateRecord, executionContext.pipelineMemoryProvider.bufferProvider);
 }
 
@@ -93,7 +126,11 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
         },
         pagedVectorPtr);
 
-    auto entrySize = memProviderPagedVector->getMemoryLayout()->getSchema().getSizeOfSchemaInBytes();
+    // For temporal sequence, we need to store 3 values per entry (lon, lat, timestamp)
+    // Assuming each is 8 bytes (double/int64)
+    const size_t valuesPerEntry = 3;
+    const size_t bytesPerValue = 8;
+    auto entrySize = valuesPerEntry * bytesPerValue;
 
     auto variableSized = pipelineMemoryProvider.arena.allocateVariableSizedData(numberOfEntries * entrySize);
 
@@ -103,8 +140,46 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
     for (auto candidateIt = pagedVectorRef.begin(allFieldNames); candidateIt != endIt; ++candidateIt)
     {
         const auto itemRecord = *candidateIt;
-        const auto itemValue = itemRecord.read(std::string(StateFieldName));
-        auto _ = itemValue.customVisit(
+        
+        // Read all three fields for temporal sequence
+        const auto lonValue = itemRecord.read(std::string(LonFieldName));
+        const auto latValue = itemRecord.read(std::string(LatFieldName));
+        const auto timestampValue = itemRecord.read(std::string(TimestampFieldName));
+        
+        // Write lon value
+        lonValue.customVisit(
+            [&]<typename T>(const T& type) -> VarVal
+            {
+                if constexpr (std::is_same_v<T, VariableSizedData>)
+                {
+                    throw std::runtime_error("VariableSizedData is not supported in TemporalSequenceAggregationPhysicalFunction");
+                }
+                else
+                {
+                    *static_cast<nautilus::val<typename T::raw_type*>>(current) = type;
+                    current += sizeof(typename T::raw_type);
+                }
+                return type;
+            });
+            
+        // Write lat value
+        latValue.customVisit(
+            [&]<typename T>(const T& type) -> VarVal
+            {
+                if constexpr (std::is_same_v<T, VariableSizedData>)
+                {
+                    throw std::runtime_error("VariableSizedData is not supported in TemporalSequenceAggregationPhysicalFunction");
+                }
+                else
+                {
+                    *static_cast<nautilus::val<typename T::raw_type*>>(current) = type;
+                    current += sizeof(typename T::raw_type);
+                }
+                return type;
+            });
+            
+        // Write timestamp value
+        timestampValue.customVisit(
             [&]<typename T>(const T& type) -> VarVal
             {
                 if constexpr (std::is_same_v<T, VariableSizedData>)
@@ -155,10 +230,16 @@ void TemporalSequenceAggregationPhysicalFunction::cleanup(nautilus::val<Aggregat
         aggregationState);
 }
 
-AggregationPhysicalFunctionRegistryReturnType AggregationPhysicalFunctionGeneratedRegistrar::RegisterArray_AggAggregationPhysicalFunction(
+AggregationPhysicalFunctionRegistryReturnType AggregationPhysicalFunctionGeneratedRegistrar::RegisterTemporalSequenceAggregationPhysicalFunction(
     AggregationPhysicalFunctionRegistryArguments arguments)
 {
-    auto memoryLayoutSchema = Schema().addField(std::string(StateFieldName), arguments.inputType);
+    // Create schema with three fields for temporal sequence (lon, lat, timestamp)
+    // Assuming lon and lat are FLOAT64 and timestamp is INT64
+    auto memoryLayoutSchema = Schema()
+        .addField(std::string(LonFieldName), DataType(DataType::Type::FLOAT64))
+        .addField(std::string(LatFieldName), DataType(DataType::Type::FLOAT64))
+        .addField(std::string(TimestampFieldName), DataType(DataType::Type::INT64));
+        
     auto layout = std::make_shared<Memory::MemoryLayouts::ColumnLayout>(8192, memoryLayoutSchema);
     const std::shared_ptr<Nautilus::Interface::MemoryProvider::TupleBufferMemoryProvider> memoryProvider
         = std::make_shared<Nautilus::Interface::MemoryProvider::ColumnTupleBufferMemoryProvider>(layout);

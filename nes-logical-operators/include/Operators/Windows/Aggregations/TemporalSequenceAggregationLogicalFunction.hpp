@@ -41,7 +41,7 @@ public:
     [[nodiscard]] const FieldAccessLogicalFunction& getTimestampField() const { return timestampField; }
 
 private:
-    static constexpr std::string_view NAME = "ARRAY_AGG";
+    static constexpr std::string_view NAME = "TEMPORAL_SEQUENCE";
     static constexpr DataType::Type partialAggregateStampType = DataType::Type::UNDEFINED;
     static constexpr DataType::Type finalAggregateStampType = DataType::Type::VARSIZED;
     

@@ -79,7 +79,7 @@ namespace MEOS {
 
     bool Meos::TemporalInstant::intersects(const TemporalInstant& point) const {  
         std::cout << "TemporalInstant::intersects called" << std::endl;
-        // Use MEOS eintersects function for temporal points  
+        // Use MEOS eintersects function for temporal points  - this will change 
         bool result = eintersects_tpoint_tpoint((const Temporal *)this->instant, (const Temporal *)point.instant);
         if (result) {
             std::cout << "TemporalInstant intersects" << std::endl;
@@ -87,6 +87,7 @@ namespace MEOS {
 
         return result;
     }
+    
 
 
  
@@ -94,7 +95,12 @@ namespace MEOS {
     Meos::TemporalSequence::TemporalSequence(double lon, double lat, int t_out) {
         // Placeholder implementation
         sequence = nullptr;
+
         std::cout << "TemporalSequence created with coordinates (" << lon << ", " << lat << ") at time " << t_out << std::endl;
+        // call the aggragtion function 
+
+        //with the result of the aggregation function, we can create a temporal sequence
+        
     }
     
     // Constructor for creating trajectory from multiple temporal instants

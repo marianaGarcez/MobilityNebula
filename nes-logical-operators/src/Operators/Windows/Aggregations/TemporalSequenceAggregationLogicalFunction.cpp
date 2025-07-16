@@ -84,15 +84,21 @@ std::string_view TemporalSequenceAggregationLogicalFunction::getName() const noe
 }
 void TemporalSequenceAggregationLogicalFunction::inferStamp(const Schema& schema)
 {
-    /// We first infer the stamp of the input field and set the output stamp as the same.
-    onField = onField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
-    if (!onField.getDataType().isNumeric())
+    /// For TEMPORAL_SEQUENCE, we need to infer types for all three fields
+    lonField = lonField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
+    latField = latField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
+    timestampField = timestampField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
+    
+    /// We also update onField for backward compatibility
+    onField = lonField;
+    
+    if (!lonField.getDataType().isNumeric() || !latField.getDataType().isNumeric())
     {
-        NES_FATAL_ERROR("MergeAggregationDescriptor: aggregations on non numeric fields is not supported.");
+        NES_FATAL_ERROR("TemporalSequenceAggregationLogicalFunction: lon and lat fields must be numeric.");
     }
 
     ///Set fully qualified name for the as Field
-    const auto onFieldName = onField.getFieldName();
+    const auto onFieldName = lonField.getFieldName();
     const auto asFieldName = asField.getFieldName();
 
     const auto attributeNameResolver = onFieldName.substr(0, onFieldName.find(Schema::ATTRIBUTE_NAME_SEPARATOR) + 1);
@@ -108,7 +114,7 @@ void TemporalSequenceAggregationLogicalFunction::inferStamp(const Schema& schema
     }
     auto newAsField = asField.withDataType(getFinalAggregateStamp());
     asField = newAsField.get<FieldAccessLogicalFunction>();
-    inputStamp = onField.getDataType();
+    inputStamp = lonField.getDataType();
 }
 
 NES::SerializableAggregationFunction TemporalSequenceAggregationLogicalFunction::serialize() const
@@ -127,11 +133,19 @@ NES::SerializableAggregationFunction TemporalSequenceAggregationLogicalFunction:
     return serializedAggregationFunction;
 }
 
-AggregationLogicalFunctionRegistryReturnType AggregationLogicalFunctionGeneratedRegistrar::RegisterArray_AggAggregationLogicalFunction(
+AggregationLogicalFunctionRegistryReturnType AggregationLogicalFunctionGeneratedRegistrar::RegisterTemporalSequenceAggregationLogicalFunction(
     AggregationLogicalFunctionRegistryArguments arguments)
 {
-    PRECONDITION(
-        arguments.fields.size() == 2, "TemporalSequenceAggregationLogicalFunction requires exactly two fields, but got {}", arguments.fields.size());
-    return TemporalSequenceAggregationLogicalFunction::create(arguments.fields[0], arguments.fields[1]);
+    if (arguments.fields.size() == 3) {
+        return TemporalSequenceAggregationLogicalFunction::create(arguments.fields[0], arguments.fields[1], arguments.fields[2]);
+    } else if (arguments.fields.size() == 2) {
+        return TemporalSequenceAggregationLogicalFunction::create(arguments.fields[0], arguments.fields[1]);
+    } else if (arguments.fields.size() == 1) {
+        return TemporalSequenceAggregationLogicalFunction::create(arguments.fields[0]);
+    } else {
+        NES_FATAL_ERROR("TemporalSequenceAggregationLogicalFunction requires 1, 2, or 3 fields, but got {}", arguments.fields.size());
+        // This line is unreachable but needed to satisfy the compiler
+        return nullptr;
+    }
 }
 }

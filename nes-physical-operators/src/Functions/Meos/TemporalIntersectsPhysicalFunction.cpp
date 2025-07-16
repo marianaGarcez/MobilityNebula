@@ -14,7 +14,7 @@
 
 #include <utility>
 #include <vector>
-#include <Functions/BooleanFunctions/TemporalIntersectsPhysicalFunction.hpp>
+#include <Functions/Meos/TemporalIntersectsPhysicalFunction.hpp>
 #include <Functions/PhysicalFunction.hpp>
 #include <Nautilus/DataTypes/VarVal.hpp>
 #include <Nautilus/Interface/Record.hpp>

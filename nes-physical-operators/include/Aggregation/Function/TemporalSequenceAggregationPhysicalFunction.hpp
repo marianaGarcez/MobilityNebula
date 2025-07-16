@@ -33,6 +33,14 @@ public:
         PhysicalFunction inputFunction,
         Nautilus::Record::RecordFieldIdentifier resultFieldIdentifier,
         std::shared_ptr<Nautilus::Interface::MemoryProvider::TupleBufferMemoryProvider> memProviderPagedVector);
+    TemporalSequenceAggregationPhysicalFunction(
+        DataType inputType,
+        DataType resultType,
+        PhysicalFunction lonFunction,
+        PhysicalFunction latFunction,
+        PhysicalFunction timestampFunction,
+        Nautilus::Record::RecordFieldIdentifier resultFieldIdentifier,
+        std::shared_ptr<Nautilus::Interface::MemoryProvider::TupleBufferMemoryProvider> memProviderPagedVector);
     void lift(const nautilus::val<AggregationState*>& aggregationState, ExecutionContext& executionContext, const Nautilus::Record& record)
         override;
     void combine(
@@ -47,6 +55,9 @@ public:
 
 private:
     std::shared_ptr<Nautilus::Interface::MemoryProvider::TupleBufferMemoryProvider> memProviderPagedVector;
+    PhysicalFunction lonFunction;
+    PhysicalFunction latFunction;
+    PhysicalFunction timestampFunction;
 };
 
 }

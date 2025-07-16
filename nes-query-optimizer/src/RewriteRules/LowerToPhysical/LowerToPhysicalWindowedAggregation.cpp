@@ -148,17 +148,29 @@ std::vector<std::shared_ptr<AggregationPhysicalFunction>> getAggregationPhysical
             // TEMPORAL_SEQUENCE outputs VARSIZED trajectory data
             auto varsizedType = DataTypeProvider::provideDataType(DataType::Type::VARSIZED);
             
-            // Create memory layout and provider for PagedVector
+            // Create memory layout and provider for PagedVector with proper schema for temporal sequence
+            // Temporal sequences need to store lon, lat, and timestamp for each point
+            auto temporalSequenceSchema = Schema()
+                .addField("lon", DataType(DataType::Type::FLOAT64))
+                .addField("lat", DataType(DataType::Type::FLOAT64))
+                .addField("timestamp", DataType(DataType::Type::INT64));
+                
             auto layout = std::make_shared<Memory::MemoryLayouts::ColumnLayout>(
-                NES::Configurations::DEFAULT_PAGED_VECTOR_SIZE, logicalOperator.getInputSchemas()[0]);
-            auto memoryProvider = std::make_unique<Nautilus::Interface::MemoryProvider::ColumnTupleBufferMemoryProvider>(layout);
+                NES::Configurations::DEFAULT_PAGED_VECTOR_SIZE, temporalSequenceSchema);
+            auto memoryProvider = std::make_shared<Nautilus::Interface::MemoryProvider::ColumnTupleBufferMemoryProvider>(layout);
+            
+            // Get the actual input type from the lon field (should be FLOAT64)
+            auto lonFieldType = temporalSeqDescriptor->getLonField().getDataType();
+            auto inputDataType = DataTypeProvider::provideDataType(lonFieldType.type);
             
             aggregationPhysicalFunctions.emplace_back(std::make_shared<TemporalSequenceAggregationPhysicalFunction>(
-                std::move(varsizedType),       // Input type (VARSIZED for trajectory state)
+                std::move(inputDataType),      // Input type (FLOAT64 for coordinates)
                 std::move(physicalFinalType), // Result type (will be VARSIZED)
-                std::move(aggregationInputFunction), // Primary input function
+                std::move(lonPhysicalFunction),
+                std::move(latPhysicalFunction),
+                std::move(timestampPhysicalFunction),
                 resultFieldIdentifier,
-                std::move(memoryProvider)));
+                memoryProvider));
         }
         else if (name == "Var")
         {
