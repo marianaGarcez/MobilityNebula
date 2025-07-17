@@ -21,6 +21,7 @@
 namespace MEOS {
 extern "C" {
     #include <meos.h>
+    #include <meos_geo.h>
 }
 
 class Meos {
@@ -75,9 +76,6 @@ class Meos {
         
         ~TemporalSequence();
 
-        // Serialization methods
-        std::string serialize() const;
-        std::string toMFJSON() const;
         
         // bool intersects(const TemporalInstant& point) const;
         // double distance(const TemporalInstant& point) const;
@@ -88,7 +86,7 @@ class Meos {
     };
 
 
-    std::string convertSecondsToTimestamp(long long seconds);
+    static std::string convertSecondsToTimestamp(long long seconds);
     bool finalized=false;
 
 };
