@@ -17,7 +17,7 @@
 #include <cstddef>
 #include <memory>
 #include <utility>
-#include <nautilus/Interface/RecordBuffer.hpp>
+#include <Nautilus/Interface/RecordBuffer.hpp>
 #include <PhysicalOperator.hpp>
 #include <ScanPhysicalOperator.hpp>
 

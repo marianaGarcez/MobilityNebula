@@ -283,12 +283,10 @@ void SystestParser::registerOnSystestAttachSourceCallback(SystestAttachSourceCal
     this->onAttachSourceCallback = std::move(callback);
 }
 
-#ifdef NES_ENABLE_INFERENCE
 void SystestParser::registerOnModelCallback(ModelCallback callback)
 {
     this->onModelCallback = std::move(callback);
 }
-#endif
 
 void SystestParser::registerOnSystestSinkCallback(SystestSinkCallback callback)
 {
@@ -315,7 +313,6 @@ void SystestParser::parse()
                 }
                 break;
             }
-#ifdef NES_ENABLE_INFERENCE
             case TokenType::MODEL: {
                 auto model = expectModel();
                 if (onModelCallback)
@@ -324,7 +321,6 @@ void SystestParser::parse()
                 }
                 break;
             }
-#endif
             case TokenType::LOGICAL_SOURCE: {
                 auto [logicalSource, attachSourceOpt] = expectSystestLogicalSource();
                 if (onSystestLogicalSourceCallback)
@@ -379,11 +375,6 @@ void SystestParser::parse()
             case TokenType::ERROR_EXPECTATION:
                 throw TestException(
                     "Should never run into the ERROR_EXPECTATION token during systest file parsing, but got line: {}", lines[currentLine]);
-#ifndef NES_ENABLE_INFERENCE
-            case TokenType::MODEL:
-                throw TestException(
-                    "MODEL token found but inference is disabled. Line: {}", lines[currentLine]);
-#endif
         }
     }
 }
@@ -523,7 +514,6 @@ SystestParser::SystestSink SystestParser::expectSink() const
     return sink;
 }
 
-#ifdef NES_ENABLE_INFERENCE
 Nebuli::Inference::ModelDescriptor SystestParser::expectModel()
 {
     try
@@ -578,7 +568,6 @@ Nebuli::Inference::ModelDescriptor SystestParser::expectModel()
         throw;
     }
 }
-#endif
 
 std::pair<SystestParser::SystestLogicalSource, std::optional<SystestAttachSource>> SystestParser::expectSystestLogicalSource()
 {

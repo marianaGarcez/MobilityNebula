@@ -14,10 +14,10 @@
 
 #include <utility>
 #include <vector>
-#include <Functions/BooleanFunctions/TemporalIntersectsPhysicalFunction.hpp>
+#include <Functions/Meos/TemporalIntersectsPhysicalFunction.hpp>
 #include <Functions/PhysicalFunction.hpp>
-#include <nautilus/DataTypes/VarVal.hpp>
-#include <nautilus/Interface/Record.hpp>
+#include <Nautilus/DataTypes/VarVal.hpp>
+#include <Nautilus/Interface/Record.hpp>
 #include <ErrorHandling.hpp>
 #include <ExecutionContext.hpp>
 #include <PhysicalFunctionRegistry.hpp>

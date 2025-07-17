@@ -15,7 +15,7 @@
 #pragma once
 
 #include <unordered_map>
-#include <nautilus/DataTypes/VarVal.hpp>
+#include <Nautilus/DataTypes/VarVal.hpp>
 
 namespace NES::Nautilus
 {

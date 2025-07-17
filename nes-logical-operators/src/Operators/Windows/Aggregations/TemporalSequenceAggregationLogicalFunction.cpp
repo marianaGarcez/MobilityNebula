@@ -12,13 +12,15 @@
     limitations under the License.
 */
 
+#include <Operators/Windows/Aggregations/TemporalSequenceAggregationLogicalFunction.hpp>
+
 #include <memory>
 #include <string>
 #include <string_view>
 #include <DataTypes/DataTypeProvider.hpp>
 #include <DataTypes/Schema.hpp>
 #include <Functions/FieldAccessLogicalFunction.hpp>
-#include <Operators/Windows/Aggregations/TemporalSequenceAggregationLogicalFunction.hpp>
+#include <Functions/LogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/WindowAggregationLogicalFunction.hpp>
 #include <AggregationLogicalFunctionRegistry.hpp>
 #include <ErrorHandling.hpp>
@@ -26,89 +28,93 @@
 
 namespace NES
 {
-
-TemporalSequenceAggregationLogicalFunction::TemporalSequenceAggregationLogicalFunction(
-    const FieldAccessLogicalFunction& lonField,
-    const FieldAccessLogicalFunction& latField,
-    const FieldAccessLogicalFunction& timestampField)
+TemporalSequenceAggregationLogicalFunction::TemporalSequenceAggregationLogicalFunction(const FieldAccessLogicalFunction& field)
     : WindowAggregationLogicalFunction(
-          DataTypeProvider::provideDataType(inputAggregateStampType),
+          field.getDataType(),
           DataTypeProvider::provideDataType(partialAggregateStampType),
           DataTypeProvider::provideDataType(finalAggregateStampType),
-          lonField)  // Use lonField as the primary "onField" for base class
-    , lonField(lonField)
-    , latField(latField)
-    , timestampField(timestampField)
+          field),
+      lonField(field), latField(field), timestampField(field)
 {
 }
 
 TemporalSequenceAggregationLogicalFunction::TemporalSequenceAggregationLogicalFunction(
-    const FieldAccessLogicalFunction& lonField,
-    const FieldAccessLogicalFunction& latField,
-    const FieldAccessLogicalFunction& timestampField,
-    const FieldAccessLogicalFunction& asField)
+    const FieldAccessLogicalFunction& field, const FieldAccessLogicalFunction& asField)
     : WindowAggregationLogicalFunction(
-          DataTypeProvider::provideDataType(inputAggregateStampType),
+          field.getDataType(),
           DataTypeProvider::provideDataType(partialAggregateStampType),
           DataTypeProvider::provideDataType(finalAggregateStampType),
-          lonField,
-          asField)
-    , lonField(lonField)
-    , latField(latField) 
-    , timestampField(timestampField)
+          field,
+          asField),
+      lonField(field), latField(field), timestampField(field)
 {
+}
+
+TemporalSequenceAggregationLogicalFunction::TemporalSequenceAggregationLogicalFunction(
+    const FieldAccessLogicalFunction& lonField, const FieldAccessLogicalFunction& latField, const FieldAccessLogicalFunction& timestampField)
+    : WindowAggregationLogicalFunction(
+          lonField.getDataType(),
+          DataTypeProvider::provideDataType(partialAggregateStampType),
+          DataTypeProvider::provideDataType(finalAggregateStampType),
+          lonField),
+      lonField(lonField), latField(latField), timestampField(timestampField)
+{
+}
+
+std::shared_ptr<WindowAggregationLogicalFunction>
+TemporalSequenceAggregationLogicalFunction::create(const FieldAccessLogicalFunction& onField, const FieldAccessLogicalFunction& asField)
+{
+    return std::make_shared<TemporalSequenceAggregationLogicalFunction>(onField, asField);
+}
+
+std::shared_ptr<WindowAggregationLogicalFunction> TemporalSequenceAggregationLogicalFunction::create(const FieldAccessLogicalFunction& onField)
+{
+    return std::make_shared<TemporalSequenceAggregationLogicalFunction>(onField);
 }
 
 std::shared_ptr<WindowAggregationLogicalFunction> TemporalSequenceAggregationLogicalFunction::create(
-    const FieldAccessLogicalFunction& lonField,
-    const FieldAccessLogicalFunction& latField,
-    const FieldAccessLogicalFunction& timestampField)
+    const FieldAccessLogicalFunction& lonField, const FieldAccessLogicalFunction& latField, const FieldAccessLogicalFunction& timestampField)
 {
     return std::make_shared<TemporalSequenceAggregationLogicalFunction>(lonField, latField, timestampField);
-}
-
-std::shared_ptr<WindowAggregationLogicalFunction> TemporalSequenceAggregationLogicalFunction::create(
-    const FieldAccessLogicalFunction& lonField,
-    const FieldAccessLogicalFunction& latField,
-    const FieldAccessLogicalFunction& timestampField,
-    const FieldAccessLogicalFunction& asField)
-{
-    return std::make_shared<TemporalSequenceAggregationLogicalFunction>(lonField, latField, timestampField, asField);
 }
 
 std::string_view TemporalSequenceAggregationLogicalFunction::getName() const noexcept
 {
     return NAME;
 }
-
 void TemporalSequenceAggregationLogicalFunction::inferStamp(const Schema& schema)
 {
-    // Infer data types for all three fields
-    auto newLonField = lonField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
-    auto newLatField = latField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
-    auto newTimestampField = timestampField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
+    /// For TEMPORAL_SEQUENCE, we need to infer types for all three fields
+    lonField = lonField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
+    latField = latField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
+    timestampField = timestampField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
+    
+    /// We also update onField for backward compatibility
+    onField = lonField;
+    
+    if (!lonField.getDataType().isNumeric() || !latField.getDataType().isNumeric())
+    {
+        NES_FATAL_ERROR("TemporalSequenceAggregationLogicalFunction: lon and lat fields must be numeric.");
+    }
 
-    // Validate field types - longitude and latitude must be floating point numbers
-    INVARIANT(newLonField.getDataType().isFloat(), "TemporalSequence longitude field must be FLOAT32 or FLOAT64, but got {}", newLonField.getDataType());
-    INVARIANT(newLatField.getDataType().isFloat(), "TemporalSequence latitude field must be FLOAT32 or FLOAT64, but got {}", newLatField.getDataType());
-    
-    // Timestamp must be an integer type (for Unix timestamps)
-    INVARIANT(newTimestampField.getDataType().isInteger(), "TemporalSequence timestamp field must be integer type, but got {}", newTimestampField.getDataType());
+    ///Set fully qualified name for the as Field
+    const auto onFieldName = lonField.getFieldName();
+    const auto asFieldName = asField.getFieldName();
 
-    // Update field references
-    lonField = newLonField;
-    latField = newLatField;
-    timestampField = newTimestampField;
-    
-    // Update base class onField to longitude field
-    onField = newLonField;
-    
-    // Set the result type to VARSIZED (MEOS trajectory)
-    auto newAsField = asField.withDataType(DataTypeProvider::provideDataType(finalAggregateStampType));
+    const auto attributeNameResolver = onFieldName.substr(0, onFieldName.find(Schema::ATTRIBUTE_NAME_SEPARATOR) + 1);
+    ///If on and as field name are different then append the attribute name resolver from on field to the as field
+    if (asFieldName.find(Schema::ATTRIBUTE_NAME_SEPARATOR) == std::string::npos)
+    {
+        asField = asField.withFieldName(attributeNameResolver + asFieldName).get<FieldAccessLogicalFunction>();
+    }
+    else
+    {
+        const auto fieldName = asFieldName.substr(asFieldName.find_last_of(Schema::ATTRIBUTE_NAME_SEPARATOR) + 1);
+        asField = asField.withFieldName(attributeNameResolver + fieldName).get<FieldAccessLogicalFunction>();
+    }
+    auto newAsField = asField.withDataType(getFinalAggregateStamp());
     asField = newAsField.get<FieldAccessLogicalFunction>();
-    
-    // Update input stamp based on the primary field (longitude)
-    inputStamp = newLonField.getDataType();
+    inputStamp = lonField.getDataType();
 }
 
 NES::SerializableAggregationFunction TemporalSequenceAggregationLogicalFunction::serialize() const
@@ -116,48 +122,30 @@ NES::SerializableAggregationFunction TemporalSequenceAggregationLogicalFunction:
     NES::SerializableAggregationFunction serializedAggregationFunction;
     serializedAggregationFunction.set_type(NAME);
 
-    // Serialize the longitude field as the primary "on_field"
-    auto lonFieldSerialized = SerializableFunction();
-    lonFieldSerialized.CopyFrom(lonField.serialize());
-    serializedAggregationFunction.mutable_on_field()->CopyFrom(lonFieldSerialized);
+    auto onFieldFuc = SerializableFunction();
+    onFieldFuc.CopyFrom(onField.serialize());
 
-    // Serialize the result field 
-    auto asFieldSerialized = SerializableFunction();
-    asFieldSerialized.CopyFrom(asField.serialize());
-    serializedAggregationFunction.mutable_as_field()->CopyFrom(asFieldSerialized);
+    auto asFieldFuc = SerializableFunction();
+    asFieldFuc.CopyFrom(asField.serialize());
 
-    // Store additional fields in custom configuration
-    // Note: In a complete implementation, you'd extend the protobuf to support multiple fields
-    // For now, we'll document the limitation that full serialization requires protobuf extension
-    
+    serializedAggregationFunction.mutable_as_field()->CopyFrom(asFieldFuc);
+    serializedAggregationFunction.mutable_on_field()->CopyFrom(onFieldFuc);
     return serializedAggregationFunction;
 }
 
-// Registry integration - this function will be called by the generated registrar
-AggregationLogicalFunctionRegistryReturnType
-AggregationLogicalFunctionGeneratedRegistrar::RegisterTemporalSequenceAggregationLogicalFunction(
+AggregationLogicalFunctionRegistryReturnType AggregationLogicalFunctionGeneratedRegistrar::RegisterTemporalSequenceAggregationLogicalFunction(
     AggregationLogicalFunctionRegistryArguments arguments)
 {
-    // TemporalSequence requires 4 fields: [lon, lat, timestamp, as_field]
-    // Or 3 fields if as_field is auto-generated: [lon, lat, timestamp]
-    
-    PRECONDITION(arguments.fields.size() == 3 || arguments.fields.size() == 4, 
-        "TemporalSequenceAggregationLogicalFunction requires 3 or 4 fields (lon, lat, timestamp[, as_field]), but got {}",
-        arguments.fields.size());
-        
-    if (arguments.fields.size() == 4)
-    {
-        // [lon, lat, timestamp, as_field]
-        return TemporalSequenceAggregationLogicalFunction::create(
-            arguments.fields[0], arguments.fields[1], arguments.fields[2], arguments.fields[3]);
-    }
-    else
-    {
-        // [lon, lat, timestamp] - auto-generate as_field
-        return TemporalSequenceAggregationLogicalFunction::create(
-            arguments.fields[0], arguments.fields[1], arguments.fields[2]);
+    if (arguments.fields.size() == 3) {
+        return TemporalSequenceAggregationLogicalFunction::create(arguments.fields[0], arguments.fields[1], arguments.fields[2]);
+    } else if (arguments.fields.size() == 2) {
+        return TemporalSequenceAggregationLogicalFunction::create(arguments.fields[0], arguments.fields[1]);
+    } else if (arguments.fields.size() == 1) {
+        return TemporalSequenceAggregationLogicalFunction::create(arguments.fields[0]);
+    } else {
+        NES_FATAL_ERROR("TemporalSequenceAggregationLogicalFunction requires 1, 2, or 3 fields, but got {}", arguments.fields.size());
+        // This line is unreachable but needed to satisfy the compiler
+        return nullptr;
     }
 }
-
-} // namespace NES
- 
+}

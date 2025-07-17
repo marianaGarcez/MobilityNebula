@@ -13,8 +13,8 @@
 */
 #pragma once
 #include <memory>
-#include <nautilus/DataTypes/VarVal.hpp>
-#include <nautilus/Interface/Hash/HashFunction.hpp>
+#include <Nautilus/DataTypes/VarVal.hpp>
+#include <Nautilus/Interface/Hash/HashFunction.hpp>
 
 namespace NES::Nautilus::Interface
 {

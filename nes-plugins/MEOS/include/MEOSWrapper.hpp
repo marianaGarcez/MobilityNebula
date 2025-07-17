@@ -18,11 +18,10 @@
 #include <string>
 #include <vector>
 
+namespace MEOS {
 extern "C" {
     #include <meos.h>
 }
-
-namespace MEOS {
 
 class Meos {
   public:
@@ -87,6 +86,7 @@ class Meos {
     private:
         Temporal* sequence;
     };
+
 
     std::string convertSecondsToTimestamp(long long seconds);
     bool finalized=false;

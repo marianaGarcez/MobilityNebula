@@ -19,12 +19,13 @@ include(${PROJECT_SOURCE_DIR}/cmake/PluginRegistrationUtil.cmake)
 activate_optional_plugin("Sources/TCPSource" ON)
 activate_optional_plugin("Sources/MQTTSource" ON)
 activate_optional_plugin("Sinks/MQTTSink" ON)
-activate_optional_plugin("ImageManip" ON)
+activate_optional_plugin("ImageManip" OFF)
 activate_optional_plugin("Inference/IREE" OFF)
-activate_optional_plugin("Sources/GeneratorSource" ON)
+activate_optional_plugin("Sources/GeneratorSource" OFF)
 activate_optional_plugin("Sources/AudioSource" OFF)
 
-# MEOS configuration - must be done before activating the plugin
+# MEOS is a dependency
+activate_optional_plugin("MEOS" ON)
 message(STATUS "Enable MEOS Plugin")
 
 # Detect the platform
@@ -40,18 +41,15 @@ if (APPLE)
 else()
     message(STATUS "Building on Linux")
 
-    # Default behavior for Linux - find MEOS before activating the plugin
+    # Default behavior for Linux
     find_package(meos REQUIRED)
     if(meos_FOUND)
-        message(STATUS "MEOS found: include=${meos_INCLUDE_DIR}, library=${meos_LIBRARY}")
+        message(STATUS "MEOS found: include=${meos_INCLUDE_DIR}, library=${meos}")
         include_directories(SYSTEM ${meos_INCLUDE_DIR})
     else()
         message(FATAL_ERROR "MEOS library not found")
     endif()
 endif()
-
-# Now activate the MEOS plugin after finding the library
-activate_optional_plugin("MEOS" ON)
 
 if (NES_ENABLES_TESTS)
   # ChecksumSink depends on Checksum.cpp from systest which is only added when tests are enabled.

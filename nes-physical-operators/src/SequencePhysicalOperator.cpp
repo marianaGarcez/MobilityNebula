@@ -16,7 +16,7 @@
 
 #include <cstdint>
 #include <utility>
-#include <nautilus/Interface/RecordBuffer.hpp>
+#include <Nautilus/Interface/RecordBuffer.hpp>
 #include <Runtime/Execution/OperatorHandler.hpp>
 #include <Runtime/QueryTerminationType.hpp>
 #include <Runtime/TupleBuffer.hpp>
