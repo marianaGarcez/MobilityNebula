@@ -25,7 +25,7 @@
 #include <Aggregation/Function/AggregationPhysicalFunction.hpp>
 #include <Aggregation/Function/Meos/TemporalSequenceAggregationPhysicalFunction.hpp>
 #include <Aggregation/Function/Meos/VarAggregationFunction.hpp>
-#include <Operators/Windows/Aggregations/TemporalSequenceAggregationLogicalFunction.hpp>
+#include <Operators/Windows/Aggregations/Meos/TemporalSequenceAggregationLogicalFunction.hpp>
 #include <Configurations/Worker/QueryOptimizerConfiguration.hpp>
 #include <DataTypes/DataTypeProvider.hpp>
 #include <Functions/FieldAccessPhysicalFunction.hpp>

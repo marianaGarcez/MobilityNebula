@@ -24,7 +24,7 @@ INTO variance_result
 0,5000,1,3.3
 0,5000,2,0.8
 
-# Test 2: VAR aggregation with sliding window (similar to SNCB brake example)
+# Test 2: VAR aggregation with sliding window
 Source brake_pressure UINT64 device_id UINT64 timestamp FLOAT64 PCFA FLOAT64 PCFF FLOAT64 PCF1 FLOAT64 PCF2 INLINE
 5,1726972591000,3.24,3.862,3.082,3.018
 5,1726972592000,3.243,3.855,3.082,3.018

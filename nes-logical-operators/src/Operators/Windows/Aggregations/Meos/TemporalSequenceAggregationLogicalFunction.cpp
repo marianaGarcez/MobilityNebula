@@ -12,7 +12,7 @@
     limitations under the License.
 */
 
-#include <Operators/Windows/Aggregations/TemporalSequenceAggregationLogicalFunction.hpp>
+#include <Operators/Windows/Aggregations/Meos/TemporalSequenceAggregationLogicalFunction.hpp>
 
 #include <memory>
 #include <string>

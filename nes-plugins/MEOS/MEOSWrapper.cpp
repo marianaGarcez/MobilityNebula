@@ -100,26 +100,16 @@ namespace MEOS {
     
 
 
- 
-    // TemporalSequence constructor
-    Meos::TemporalSequence::TemporalSequence(double lon, double lat, int t_out) {
-        // Ensure MEOS is initialized
-        ensureMeosInitialized();
-        sequence = nullptr;
 
-        std::cout << "TemporalSequence created with coordinates (" << lon << ", " << lat << ") at time " << t_out << std::endl;
-        // TODO:call the aggregation function
-
-        //TODO: with the result of the aggregation function, we can create a temporal sequence
-        
-    }
-    
     // Constructor for creating trajectory from multiple temporal instants
     Meos::TemporalSequence::TemporalSequence(const std::vector<TemporalInstant*>& instants) {
         // Ensure MEOS is initialized
         ensureMeosInitialized();
 
         sequence = nullptr;
+        // TODO:call the aggregation function
+        
+        //TODO: with the result of the aggregation function, we can create a temporal sequence
         std::cout << "TemporalSequence created from " << instants.size() << " temporal instants" << std::endl;
     }
    

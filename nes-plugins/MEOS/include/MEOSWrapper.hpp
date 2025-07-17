@@ -63,8 +63,6 @@ class Meos {
     
     class TemporalSequence {
     public:
-        explicit TemporalSequence(double lon, double lat, int t_out);
-        
         // Constructor for creating trajectory from multiple points
         explicit TemporalSequence(const std::vector<TemporalInstant*>& instants);
         
