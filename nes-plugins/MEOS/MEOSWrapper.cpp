@@ -40,7 +40,7 @@ namespace MEOS {
     }
 
     Meos::~Meos() { 
-        // Don't finalize MEOS here - it should remain initialized for the lifetime of the application
+        meos_finalize();
     }
 
     std::string Meos::convertSecondsToTimestamp(long long seconds) {
