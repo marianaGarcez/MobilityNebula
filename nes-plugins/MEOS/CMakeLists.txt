@@ -19,12 +19,25 @@ target_include_directories(nes-meos
         PUBLIC .
 )
 
-# Link with MEOS library using the imported target
-if(TARGET meos::meos)
-    target_link_libraries(nes-meos PUBLIC meos::meos)
-else()
+# Link with MEOS library
+# Check if meos variables are available from parent scope
+if(NOT DEFINED meos OR NOT DEFINED meos_INCLUDE_DIR)
+    # If not found in parent scope, find it here
+    find_package(meos REQUIRED)
+endif()
+
+if(meos AND meos_INCLUDE_DIR)
     target_link_libraries(nes-meos PUBLIC ${meos})
     target_include_directories(nes-meos PUBLIC ${meos_INCLUDE_DIR})
+    # Also link MEOS dependencies
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GEOS REQUIRED geos)
+    pkg_check_modules(PROJ REQUIRED proj)
+    find_library(GSL_LIB gsl)
+    find_library(JSON_C_LIB json-c)
+    target_link_libraries(nes-meos PUBLIC ${GEOS_LIBRARIES} ${PROJ_LIBRARIES} ${GSL_LIB} ${JSON_C_LIB})
+else()
+    message(FATAL_ERROR "MEOS library not found. meos=${meos}, meos_INCLUDE_DIR=${meos_INCLUDE_DIR}")
 endif()
 
 # Link with NebulaStream dependencies  
