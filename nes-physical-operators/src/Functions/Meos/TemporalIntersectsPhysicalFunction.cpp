@@ -49,7 +49,12 @@ VarVal TemporalIntersectsPhysicalFunction::execute(const Record& record, ArenaRe
     const auto result = nautilus::invoke(
         +[](double lon, double lat, double ts) -> bool {
             try {
-                auto meos = MEOS::Meos();
+                // Ensure MEOS is initialized but don't create a Meos object that will finalize it
+                static MEOS::Meos* meos_instance = nullptr;
+                if (!meos_instance) {
+                    meos_instance = new MEOS::Meos();
+                }
+                
                 MEOS::Meos::TemporalInstant temporal1(lon, lat,static_cast<long long>(ts));    
                 MEOS::Meos::TemporalInstant temporal2(-73.9857, 40.7484,static_cast<long long>(ts));    
 

@@ -20,6 +20,7 @@
 #include <iomanip>
 #include <sstream>
 #include <iostream>
+#include <cstdlib>
 
 
 
@@ -28,10 +29,25 @@ namespace MEOS {
     // Global MEOS initialization
     static bool meos_initialized = false;
 
+    static void cleanupMeos() {
+        if (meos_initialized) {
+            meos_finalize();
+            meos_initialized = false;
+        }
+    }
+
     static void ensureMeosInitialized() {
         if (!meos_initialized) {
+            // Set timezone to UTC if not set (common issue in Docker)
+            if (!std::getenv("TZ")) {
+                setenv("TZ", "UTC", 1);
+                tzset();
+            }
+            
             meos_initialize();
             meos_initialized = true;
+            // Register cleanup function to be called at program exit
+            std::atexit(cleanupMeos);
         }
     }
 
@@ -40,7 +56,8 @@ namespace MEOS {
     }
 
     Meos::~Meos() { 
-        meos_finalize();
+        // Do not finalize MEOS here - it should remain initialized for the lifetime of the program
+        //we finalize at cleanupMeos
     }
 
     std::string Meos::convertSecondsToTimestamp(long long seconds) {
