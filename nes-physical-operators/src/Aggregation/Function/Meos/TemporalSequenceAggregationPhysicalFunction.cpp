@@ -44,6 +44,7 @@
 // MEOS C API headers
 extern "C" {
 #include <meos.h>
+#include <meos_geo.h>
 }
 
 namespace NES
@@ -209,7 +210,8 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
         },
         trajectoryStr);
     
-    // Get string length and allocate variable sized data
+    // For now, return the string as-is (MEOS conversion needs more complex handling)
+    // TODO: Convert to binary MEOS format when needed
     auto strLen = nautilus::invoke(
         +[](const char* str) -> size_t
         {
