@@ -134,7 +134,7 @@ std::vector<std::shared_ptr<AggregationPhysicalFunction>> getAggregationPhysical
         {
             aggregationPhysicalFunctions.push_back(aggregationPhysicalFunction.value());
         }
-        else if (name == "TemporalSequence")
+        else if (name == "TEMPORAL_SEQUENCE")
         {
             // Cast to get access to the specific TemporalSequence fields
             auto* temporalSeqDescriptor = dynamic_cast<const TemporalSequenceAggregationLogicalFunction*>(descriptor.get());

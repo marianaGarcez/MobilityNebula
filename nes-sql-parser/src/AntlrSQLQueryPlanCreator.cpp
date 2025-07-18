@@ -975,7 +975,9 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                 VarAggregationLogicalFunction::create(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
             break;
         case AntlrSQLLexer::TEMPORAL_SEQUENCE:
-            INVARIANT(helpers.top().functionBuilder.size() == 3, "TEMPORAL_SEQUENCE requires three arguments (longitude, latitude, timestamp), but got {}", helpers.top().functionBuilder.size());
+            if (helpers.top().functionBuilder.size() != 3) {
+                throw InvalidQuerySyntax("TEMPORAL_SEQUENCE requires exactly three arguments (longitude, latitude, timestamp), but got {}", helpers.top().functionBuilder.size());
+            }
             {
                 const auto timestampFunction = helpers.top().functionBuilder.back();
                 helpers.top().functionBuilder.pop_back();
@@ -983,10 +985,21 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                 helpers.top().functionBuilder.pop_back();
                 const auto longitudeFunction = helpers.top().functionBuilder.back();
                 helpers.top().functionBuilder.pop_back();
+                
+                // Verify all arguments are field access functions
+                if (!longitudeFunction.tryGet<FieldAccessLogicalFunction>() ||
+                    !latitudeFunction.tryGet<FieldAccessLogicalFunction>() ||
+                    !timestampFunction.tryGet<FieldAccessLogicalFunction>()) {
+                    throw InvalidQuerySyntax("TEMPORAL_SEQUENCE arguments must be field references");
+                }
+                
                 helpers.top().windowAggs.push_back(
                     TemporalSequenceAggregationLogicalFunction::create(longitudeFunction.get<FieldAccessLogicalFunction>(),
                                                                       latitudeFunction.get<FieldAccessLogicalFunction>(),
                                                                       timestampFunction.get<FieldAccessLogicalFunction>()));
+                // Push back one field access function to satisfy parser expectations
+                // This prevents the functionBuilder from being empty when processing the identifier
+                helpers.top().functionBuilder.push_back(longitudeFunction);
             }
             break;
         default:
@@ -1005,7 +1018,9 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
             }
             else if (funcName == "TEMPORAL_INTERSECTS")
             {
-                INVARIANT(helpers.top().functionBuilder.size() == 3, "TEMPORAL_INTERSECTS requires three arguments (lon, lat, timestamp), but got {}", helpers.top().functionBuilder.size());
+                if (helpers.top().functionBuilder.size() != 3) {
+                    throw InvalidQuerySyntax("TEMPORAL_INTERSECTS requires exactly three arguments (lon, lat, timestamp), but got {}", helpers.top().functionBuilder.size());
+                }
                 const auto ts = helpers.top().functionBuilder.back();
                 helpers.top().functionBuilder.pop_back();
                 const auto lat = helpers.top().functionBuilder.back();

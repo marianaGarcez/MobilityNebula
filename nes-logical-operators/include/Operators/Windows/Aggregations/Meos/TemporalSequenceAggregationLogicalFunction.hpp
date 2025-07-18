@@ -21,13 +21,9 @@ namespace NES
 class TemporalSequenceAggregationLogicalFunction : public WindowAggregationLogicalFunction
 {
 public:
-    static std::shared_ptr<WindowAggregationLogicalFunction> create(const FieldAccessLogicalFunction& onField);
-    static std::shared_ptr<WindowAggregationLogicalFunction>
-    create(const FieldAccessLogicalFunction& onField, const FieldAccessLogicalFunction& asField);
+    // TEMPORAL_SEQUENCE requires three fields: longitude, latitude, and timestamp
     static std::shared_ptr<WindowAggregationLogicalFunction>
     create(const FieldAccessLogicalFunction& lonField, const FieldAccessLogicalFunction& latField, const FieldAccessLogicalFunction& timestampField);
-    TemporalSequenceAggregationLogicalFunction(const FieldAccessLogicalFunction& onField, const FieldAccessLogicalFunction& asField);
-    explicit TemporalSequenceAggregationLogicalFunction(const FieldAccessLogicalFunction& onField);
     TemporalSequenceAggregationLogicalFunction(const FieldAccessLogicalFunction& lonField, const FieldAccessLogicalFunction& latField, const FieldAccessLogicalFunction& timestampField);
 
     void inferStamp(const Schema& schema) override;

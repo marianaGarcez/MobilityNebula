@@ -28,27 +28,7 @@
 
 namespace NES
 {
-TemporalSequenceAggregationLogicalFunction::TemporalSequenceAggregationLogicalFunction(const FieldAccessLogicalFunction& field)
-    : WindowAggregationLogicalFunction(
-          field.getDataType(),
-          DataTypeProvider::provideDataType(partialAggregateStampType),
-          DataTypeProvider::provideDataType(finalAggregateStampType),
-          field),
-      lonField(field), latField(field), timestampField(field)
-{
-}
-
-TemporalSequenceAggregationLogicalFunction::TemporalSequenceAggregationLogicalFunction(
-    const FieldAccessLogicalFunction& field, const FieldAccessLogicalFunction& asField)
-    : WindowAggregationLogicalFunction(
-          field.getDataType(),
-          DataTypeProvider::provideDataType(partialAggregateStampType),
-          DataTypeProvider::provideDataType(finalAggregateStampType),
-          field,
-          asField),
-      lonField(field), latField(field), timestampField(field)
-{
-}
+// Single-field constructors removed - TEMPORAL_SEQUENCE requires three separate fields
 
 TemporalSequenceAggregationLogicalFunction::TemporalSequenceAggregationLogicalFunction(
     const FieldAccessLogicalFunction& lonField, const FieldAccessLogicalFunction& latField, const FieldAccessLogicalFunction& timestampField)
@@ -61,16 +41,7 @@ TemporalSequenceAggregationLogicalFunction::TemporalSequenceAggregationLogicalFu
 {
 }
 
-std::shared_ptr<WindowAggregationLogicalFunction>
-TemporalSequenceAggregationLogicalFunction::create(const FieldAccessLogicalFunction& onField, const FieldAccessLogicalFunction& asField)
-{
-    return std::make_shared<TemporalSequenceAggregationLogicalFunction>(onField, asField);
-}
-
-std::shared_ptr<WindowAggregationLogicalFunction> TemporalSequenceAggregationLogicalFunction::create(const FieldAccessLogicalFunction& onField)
-{
-    return std::make_shared<TemporalSequenceAggregationLogicalFunction>(onField);
-}
+// Single-field create methods removed - TEMPORAL_SEQUENCE requires three separate fields
 
 std::shared_ptr<WindowAggregationLogicalFunction> TemporalSequenceAggregationLogicalFunction::create(
     const FieldAccessLogicalFunction& lonField, const FieldAccessLogicalFunction& latField, const FieldAccessLogicalFunction& timestampField)
@@ -91,10 +62,10 @@ void TemporalSequenceAggregationLogicalFunction::inferStamp(const Schema& schema
     
     /// We also update onField for backward compatibility
     onField = lonField;
-    
-    if (!lonField.getDataType().isNumeric() || !latField.getDataType().isNumeric())
+
+    if (!lonField.getDataType().isNumeric() || !latField.getDataType().isNumeric() || !timestampField.getDataType().isNumeric())
     {
-        NES_FATAL_ERROR("TemporalSequenceAggregationLogicalFunction: lon and lat fields must be numeric.");
+        NES_FATAL_ERROR("TemporalSequenceAggregationLogicalFunction: lon, lat, and timestamp fields must be numeric.");
     }
 
     ///Set fully qualified name for the as Field
@@ -138,14 +109,11 @@ AggregationLogicalFunctionRegistryReturnType AggregationLogicalFunctionGenerated
 {
     if (arguments.fields.size() == 3) {
         return TemporalSequenceAggregationLogicalFunction::create(arguments.fields[0], arguments.fields[1], arguments.fields[2]);
-    } else if (arguments.fields.size() == 2) {
-        return TemporalSequenceAggregationLogicalFunction::create(arguments.fields[0], arguments.fields[1]);
-    } else if (arguments.fields.size() == 1) {
-        return TemporalSequenceAggregationLogicalFunction::create(arguments.fields[0]);
     } else {
-        NES_FATAL_ERROR("TemporalSequenceAggregationLogicalFunction requires 1, 2, or 3 fields, but got {}", arguments.fields.size());
+        NES_FATAL_ERROR("TemporalSequenceAggregationLogicalFunction requires exactly 3 fields (lon, lat, timestamp), but got {}", arguments.fields.size());
         // This line is unreachable but needed to satisfy the compiler
         return nullptr;
     }
 }
-}
+
+} // namespace NES

@@ -27,18 +27,13 @@ namespace NES
 class TemporalSequenceAggregationPhysicalFunction : public AggregationPhysicalFunction
 {
 public:
+    // Single-field constructor removed - TEMPORAL_SEQUENCE requires three separate field functions
     TemporalSequenceAggregationPhysicalFunction(
         DataType inputType,
         DataType resultType,
-        PhysicalFunction inputFunction,
-        Nautilus::Record::RecordFieldIdentifier resultFieldIdentifier,
-        std::shared_ptr<Nautilus::Interface::MemoryProvider::TupleBufferMemoryProvider> memProviderPagedVector);
-    TemporalSequenceAggregationPhysicalFunction(
-        DataType inputType,
-        DataType resultType,
-        PhysicalFunction lonFunction,
-        PhysicalFunction latFunction,
-        PhysicalFunction timestampFunction,
+        PhysicalFunction lonFunctionParam,
+        PhysicalFunction latFunctionParam,
+        PhysicalFunction timestampFunctionParam,
         Nautilus::Record::RecordFieldIdentifier resultFieldIdentifier,
         std::shared_ptr<Nautilus::Interface::MemoryProvider::TupleBufferMemoryProvider> memProviderPagedVector);
     void lift(const nautilus::val<AggregationState*>& aggregationState, ExecutionContext& executionContext, const Nautilus::Record& record)
