@@ -92,6 +92,9 @@ TemporalSequenceAggregationPhysicalFunction::TemporalSequenceAggregationPhysical
 void TemporalSequenceAggregationPhysicalFunction::lift(
     const nautilus::val<AggregationState*>& aggregationState, ExecutionContext& executionContext, const Nautilus::Record& record)
 {
+    // Debug: Print when lift is called
+    printf("DEBUG: TEMPORAL_SEQUENCE lift() called - adding point to aggregation\n");
+    
     // Cast to PagedVector pointer consistently with combine() and lower()
     const auto pagedVectorPtr = static_cast<nautilus::val<Nautilus::Interface::PagedVector*>>(aggregationState);
     
@@ -141,7 +144,9 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
     const auto numberOfEntries = invoke(
         +[](const Nautilus::Interface::PagedVector* pagedVector)
         {
-            return pagedVector->getTotalNumberOfEntries();
+            auto count = pagedVector->getTotalNumberOfEntries();
+            printf("DEBUG: PagedVector contains %lu entries\n", (unsigned long)count);
+            return count;
         },
         pagedVectorPtr);
 
@@ -184,6 +189,7 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
         trajectoryStr = nautilus::invoke(
             +[](char* buffer, double lonVal, double latVal, int64_t tsVal, int64_t counter) -> char*
             {
+                printf("DEBUG: Processing point %ld: (%.4f,%.4f)@%ld\n", counter, lonVal, latVal, tsVal);
                 if (counter > 0) {
                     strcat(buffer, ",");
                 }
@@ -206,6 +212,7 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
         +[](char* buffer) -> char*
         {
             strcat(buffer, "}");
+            printf("DEBUG: Final trajectory string: %s\n", buffer);
             return buffer;
         },
         trajectoryStr);
