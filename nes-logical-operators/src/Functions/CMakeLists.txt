@@ -13,6 +13,7 @@
 add_subdirectory(BooleanFunctions)
 add_subdirectory(ArithmeticalFunctions)
 add_subdirectory(ComparisonFunctions)
+add_subdirectory(Meos)
 
 add_source_files(nes-logical-operators
         LogicalFunction.cpp
@@ -25,4 +26,3 @@ add_plugin(FieldAssignment LogicalFunction nes-logical-operators FieldAssignment
 add_plugin(Rename LogicalFunction nes-logical-operators RenameLogicalFunction.cpp)
 add_plugin(Concat LogicalFunction nes-logical-operators ConcatLogicalFunction.cpp)
 add_plugin(CastToType LogicalFunction nes-logical-operators CastToTypeLogicalFunction.cpp)
-add_plugin(TemporalIntersects LogicalFunction nes-logical-operators TemporalIntersectsFunction.cpp)

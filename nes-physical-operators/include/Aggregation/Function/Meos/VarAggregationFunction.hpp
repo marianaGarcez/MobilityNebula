@@ -17,41 +17,40 @@
 #include <cstddef>
 #include <memory>
 #include <Aggregation/Function/AggregationPhysicalFunction.hpp>
-#include <nautilus/Interface/MemoryProvider/TupleBufferMemoryProvider.hpp>
-#include <nautilus/Interface/Record.hpp>
+#include <DataTypes/DataType.hpp>
+#include <Functions/PhysicalFunction.hpp>
+#include <Nautilus/Interface/Record.hpp>
+#include <Runtime/AbstractBufferProvider.hpp>
 #include <val_concepts.hpp>
 
 namespace NES
 {
 
-class TemporalSequenceAggregationPhysicalFunction : public AggregationPhysicalFunction
+class VarAggregationFunction : public AggregationPhysicalFunction
 {
 public:
-    TemporalSequenceAggregationPhysicalFunction(
+    VarAggregationFunction(
         DataType inputType,
         DataType resultType,
-        PhysicalFunction lonFunction,
-        PhysicalFunction latFunction,
-        PhysicalFunction timestampFunction,
+        PhysicalFunction inputFunction,
         Nautilus::Record::RecordFieldIdentifier resultFieldIdentifier,
-        std::shared_ptr<Nautilus::Interface::MemoryProvider::TupleBufferMemoryProvider> memProviderPagedVector);
-    void lift(const nautilus::val<AggregationState*>& aggregationState, ExecutionContext& executionContext, const Nautilus::Record& record)
-        override;
+        DataType countType);
+    void lift(
+        const nautilus::val<AggregationState*>& aggregationState,
+        ExecutionContext& executionContext,
+        const Nautilus::Record& record) override;
     void combine(
         nautilus::val<AggregationState*> aggregationState1,
         nautilus::val<AggregationState*> aggregationState2,
         PipelineMemoryProvider& pipelineMemoryProvider) override;
     Nautilus::Record lower(nautilus::val<AggregationState*> aggregationState, PipelineMemoryProvider& pipelineMemoryProvider) override;
     void reset(nautilus::val<AggregationState*> aggregationState, PipelineMemoryProvider& pipelineMemoryProvider) override;
-    [[nodiscard]] size_t getSizeOfStateInBytes() const override;
-    ~TemporalSequenceAggregationPhysicalFunction() override = default;
     void cleanup(nautilus::val<AggregationState*> aggregationState) override;
+    [[nodiscard]] size_t getSizeOfStateInBytes() const override;
+    ~VarAggregationFunction() override = default;
 
 private:
-    PhysicalFunction lonFunction;
-    PhysicalFunction latFunction;
-    PhysicalFunction timestampFunction;
-    std::shared_ptr<Nautilus::Interface::MemoryProvider::TupleBufferMemoryProvider> memProviderPagedVector;
+    DataType countType;
 };
 
 }

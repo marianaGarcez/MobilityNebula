@@ -17,7 +17,7 @@
 #include <ranges>
 
 #include <Configurations/Worker/QueryOptimizerConfiguration.hpp>
-#include <nautilus/Interface/Record.hpp>
+#include <Nautilus/Interface/Record.hpp>
 #include <Operators/LogicalOperator.hpp>
 #include <Util/Common.hpp>
 #include <nautilus/function.hpp>

@@ -14,7 +14,6 @@
 
 #include <Aggregation/Function/ArrayAggregationPhysicalFunction.hpp>
 
-#include <ErrorHandling.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -22,11 +21,11 @@
 #include <utility>
 
 #include <MemoryLayout/ColumnLayout.hpp>
-#include <nautilus/Interface/MemoryProvider/ColumnTupleBufferMemoryProvider.hpp>
-#include <nautilus/Interface/MemoryProvider/TupleBufferMemoryProvider.hpp>
-#include <nautilus/Interface/PagedVector/PagedVector.hpp>
-#include <nautilus/Interface/PagedVector/PagedVectorRef.hpp>
-#include <nautilus/Interface/Record.hpp>
+#include <Nautilus/Interface/MemoryProvider/ColumnTupleBufferMemoryProvider.hpp>
+#include <Nautilus/Interface/MemoryProvider/TupleBufferMemoryProvider.hpp>
+#include <Nautilus/Interface/PagedVector/PagedVector.hpp>
+#include <Nautilus/Interface/PagedVector/PagedVectorRef.hpp>
+#include <Nautilus/Interface/Record.hpp>
 #include <nautilus/function.hpp>
 
 #include <AggregationPhysicalFunctionRegistry.hpp>
@@ -66,29 +65,23 @@ void ArrayAggregationPhysicalFunction::combine(
     const nautilus::val<AggregationState*> aggregationState2,
     PipelineMemoryProvider&)
 {
+    /// Getting the paged vectors from the aggregation states
+    const auto memArea1 = static_cast<nautilus::val<Nautilus::Interface::PagedVector*>>(aggregationState1);
+    const auto memArea2 = static_cast<nautilus::val<Nautilus::Interface::PagedVector*>>(aggregationState2);
+
     /// Calling the copyFrom function of the paged vector to combine the two paged vectors by copying the content of the second paged vector to the first paged vector
     nautilus::invoke(
-        +[](AggregationState* state1, AggregationState* state2) -> void
-        {
-            /// Reinterpret the aggregation states as PagedVector pointers
-            auto* vector1 = reinterpret_cast<Nautilus::Interface::PagedVector*>(state1);
-            auto* vector2 = reinterpret_cast<Nautilus::Interface::PagedVector*>(state2);
-            vector1->copyFrom(*vector2);
-        },
-        aggregationState1,
-        aggregationState2);
+        +[](Nautilus::Interface::PagedVector* vector1, const Nautilus::Interface::PagedVector* vector2) -> void
+        { vector1->copyFrom(*vector2); },
+        memArea1,
+        memArea2);
 }
 
 Nautilus::Record ArrayAggregationPhysicalFunction::lower(
     const nautilus::val<AggregationState*> aggregationState, PipelineMemoryProvider& pipelineMemoryProvider)
 {
-    /// Get the PagedVector pointer from the aggregation state
-    const auto pagedVectorPtr = nautilus::invoke(
-        +[](AggregationState* state) -> Nautilus::Interface::PagedVector*
-        {
-            return reinterpret_cast<Nautilus::Interface::PagedVector*>(state);
-        },
-        aggregationState);
+    /// Getting the paged vector from the aggregation state
+    const auto pagedVectorPtr = static_cast<nautilus::val<Nautilus::Interface::PagedVector*>>(aggregationState);
     const Nautilus::Interface::PagedVectorRef pagedVectorRef(pagedVectorPtr, memProviderPagedVector);
     const auto allFieldNames = memProviderPagedVector->getMemoryLayout()->getSchema().getFieldNames();
     const auto numberOfEntries = invoke(
@@ -138,9 +131,6 @@ void ArrayAggregationPhysicalFunction::reset(const nautilus::val<AggregationStat
     nautilus::invoke(
         +[](AggregationState* pagedVectorMemArea) -> void
         {
-            /// Ensure proper alignment before placement new
-            INVARIANT(reinterpret_cast<uintptr_t>(pagedVectorMemArea) % alignof(Nautilus::Interface::PagedVector) == 0,
-                      "PagedVector memory must be properly aligned");
             /// Allocates a new PagedVector in the memory area provided by the pointer to the pagedvector
             auto* pagedVector = reinterpret_cast<Nautilus::Interface::PagedVector*>(pagedVectorMemArea);
             new (pagedVector) Nautilus::Interface::PagedVector();
@@ -150,11 +140,7 @@ void ArrayAggregationPhysicalFunction::reset(const nautilus::val<AggregationStat
 
 size_t ArrayAggregationPhysicalFunction::getSizeOfStateInBytes() const
 {
-    // Ensure proper alignment for std::vector inside PagedVector
-    constexpr size_t alignment = alignof(std::max_align_t);
-    size_t size = sizeof(Nautilus::Interface::PagedVector);
-    // Round up to nearest multiple of alignment
-    return ((size + alignment - 1) / alignment) * alignment;
+    return sizeof(Nautilus::Interface::PagedVector);
 }
 void ArrayAggregationPhysicalFunction::cleanup(nautilus::val<AggregationState*> aggregationState)
 {

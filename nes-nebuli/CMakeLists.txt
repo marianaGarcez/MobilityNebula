@@ -28,12 +28,9 @@ target_include_directories(nes-nebuli-lib
         PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/private>)
 
 target_link_libraries(nes-nebuli-lib
-        PUBLIC nes-logical-operators
+        PUBLIC nes-logical-operators nes-inference
         PRIVATE nes-sql-parser yaml-cpp::yaml-cpp
 )
-if(NES_ENABLE_INFERENCE)
-    target_link_libraries(nes-nebuli-lib PUBLIC nes-inference)
-endif()
 
 add_executable(nes-nebuli src/NebuLIStarter.cpp)
 # Nebuli loads a Query using `dlopen` this requires the executable to be dynamic

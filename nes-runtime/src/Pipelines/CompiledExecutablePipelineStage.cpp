@@ -18,7 +18,7 @@
 #include <ostream>
 #include <unordered_map>
 #include <utility>
-#include <nautilus/Interface/RecordBuffer.hpp>
+#include <Nautilus/Interface/RecordBuffer.hpp>
 #include <Runtime/Execution/OperatorHandler.hpp>
 #include <Runtime/TupleBuffer.hpp>
 #include <fmt/format.h>

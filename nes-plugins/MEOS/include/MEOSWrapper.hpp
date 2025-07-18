@@ -18,11 +18,11 @@
 #include <string>
 #include <vector>
 
+namespace MEOS {
 extern "C" {
     #include <meos.h>
+    #include <meos_geo.h>
 }
-
-namespace MEOS {
 
 class Meos {
   public:
@@ -63,8 +63,6 @@ class Meos {
     
     class TemporalSequence {
     public:
-        explicit TemporalSequence(double lon, double lat, int t_out);
-        
         // Constructor for creating trajectory from multiple points
         explicit TemporalSequence(const std::vector<TemporalInstant*>& instants);
         
@@ -76,9 +74,6 @@ class Meos {
         
         ~TemporalSequence();
 
-        // Serialization methods
-        std::string serialize() const;
-        std::string toMFJSON() const;
         
         // bool intersects(const TemporalInstant& point) const;
         // double distance(const TemporalInstant& point) const;
@@ -88,7 +83,8 @@ class Meos {
         Temporal* sequence;
     };
 
-    std::string convertSecondsToTimestamp(long long seconds);
+
+    static std::string convertSecondsToTimestamp(long long seconds);
     bool finalized=false;
 
 };

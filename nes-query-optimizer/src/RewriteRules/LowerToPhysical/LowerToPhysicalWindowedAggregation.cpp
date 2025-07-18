@@ -23,21 +23,20 @@
 #include <Aggregation/AggregationOperatorHandler.hpp>
 #include <Aggregation/AggregationProbePhysicalOperator.hpp>
 #include <Aggregation/Function/AggregationPhysicalFunction.hpp>
-#include <Aggregation/Function/TemporalSequenceAggregationPhysicalFunction.hpp>
-#include <Aggregation/Function/VarAggregationFunction.hpp>
-#include <Operators/Windows/Aggregations/TemporalSequenceAggregationLogicalFunction.hpp>
+#include <Aggregation/Function/Meos/TemporalSequenceAggregationPhysicalFunction.hpp>
+#include <Aggregation/Function/Meos/VarAggregationFunction.hpp>
+#include <Operators/Windows/Aggregations/Meos/TemporalSequenceAggregationLogicalFunction.hpp>
 #include <Configurations/Worker/QueryOptimizerConfiguration.hpp>
 #include <DataTypes/DataTypeProvider.hpp>
-#include <DataTypes/Schema.hpp>
 #include <Functions/FieldAccessPhysicalFunction.hpp>
 #include <Functions/FunctionProvider.hpp>
 #include <Functions/PhysicalFunction.hpp>
 #include <MemoryLayout/ColumnLayout.hpp>
-#include <nautilus/Interface/Hash/MurMur3HashFunction.hpp>
-#include <nautilus/Interface/HashMap/ChainedHashMap/ChainedEntryMemoryProvider.hpp>
-#include <nautilus/Interface/HashMap/ChainedHashMap/ChainedHashMap.hpp>
-#include <nautilus/Interface/MemoryProvider/ColumnTupleBufferMemoryProvider.hpp>
-#include <nautilus/Interface/Record.hpp>
+#include <Nautilus/Interface/Hash/MurMur3HashFunction.hpp>
+#include <Nautilus/Interface/HashMap/ChainedHashMap/ChainedEntryMemoryProvider.hpp>
+#include <Nautilus/Interface/HashMap/ChainedHashMap/ChainedHashMap.hpp>
+#include <Nautilus/Interface/MemoryProvider/ColumnTupleBufferMemoryProvider.hpp>
+#include <Nautilus/Interface/Record.hpp>
 #include <Operators/LogicalOperator.hpp>
 #include <Operators/Windows/WindowedAggregationLogicalOperator.hpp>
 #include <RewriteRules/AbstractRewriteRule.hpp>
@@ -149,23 +148,29 @@ std::vector<std::shared_ptr<AggregationPhysicalFunction>> getAggregationPhysical
             // TEMPORAL_SEQUENCE outputs VARSIZED trajectory data
             auto varsizedType = DataTypeProvider::provideDataType(DataType::Type::VARSIZED);
             
-            // Create memory layout for storing trajectory points (lon, lat, timestamp)
-            auto memoryLayoutSchema = Schema()
-                .addField("longitude", DataType::Type::FLOAT64)
-                .addField("latitude", DataType::Type::FLOAT64)
-                .addField("timestamp", DataType::Type::UINT64);
+            // Create memory layout and provider for PagedVector with proper schema for temporal sequence
+            // Temporal sequences need to store lon, lat, and timestamp for each point
+            auto temporalSequenceSchema = Schema()
+                .addField("lon", DataType(DataType::Type::FLOAT64))
+                .addField("lat", DataType(DataType::Type::FLOAT64))
+                .addField("timestamp", DataType(DataType::Type::INT64));
+                
             auto layout = std::make_shared<Memory::MemoryLayouts::ColumnLayout>(
-                8192, memoryLayoutSchema);
+                NES::Configurations::DEFAULT_PAGED_VECTOR_SIZE, temporalSequenceSchema);
             auto memoryProvider = std::make_shared<Nautilus::Interface::MemoryProvider::ColumnTupleBufferMemoryProvider>(layout);
             
+            // Get the actual input type from the lon field (should be FLOAT64)
+            auto lonFieldType = temporalSeqDescriptor->getLonField().getDataType();
+            auto inputDataType = DataTypeProvider::provideDataType(lonFieldType.type);
+            
             aggregationPhysicalFunctions.emplace_back(std::make_shared<TemporalSequenceAggregationPhysicalFunction>(
-                std::move(varsizedType),       // Input type (VARSIZED for trajectory state)
+                std::move(inputDataType),      // Input type (FLOAT64 for coordinates)
                 std::move(physicalFinalType), // Result type (will be VARSIZED)
-                std::move(lonPhysicalFunction),      // Longitude function
-                std::move(latPhysicalFunction),      // Latitude function
-                std::move(timestampPhysicalFunction), // Timestamp function
+                std::move(lonPhysicalFunction),
+                std::move(latPhysicalFunction),
+                std::move(timestampPhysicalFunction),
                 resultFieldIdentifier,
-                std::move(memoryProvider)));
+                memoryProvider));
         }
         else if (name == "Var")
         {

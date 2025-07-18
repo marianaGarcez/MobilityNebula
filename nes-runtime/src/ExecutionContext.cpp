@@ -19,8 +19,8 @@
 #include <utility>
 #include <Identifiers/Identifiers.hpp>
 #include <Identifiers/NESStrongType.hpp>
-#include <nautilus/Interface/NESStrongTypeRef.hpp>
-#include <nautilus/Interface/RecordBuffer.hpp>
+#include <Nautilus/Interface/NESStrongTypeRef.hpp>
+#include <Nautilus/Interface/RecordBuffer.hpp>
 #include <Runtime/AbstractBufferProvider.hpp>
 #include <Runtime/Execution/OperatorHandler.hpp>
 #include <Runtime/TupleBuffer.hpp>
@@ -181,7 +181,7 @@ OperatorState* ExecutionContext::getLocalState(const OperatorId operatorId)
 
 void ExecutionContext::setLocalOperatorState(const OperatorId operatorId, std::unique_ptr<OperatorState> state)
 {
-    localStateMap.insert_or_assign(operatorId, std::move(state));
+    localStateMap.emplace(operatorId, std::move(state));
 }
 
 static OperatorHandler* getGlobalOperatorHandlerProxy(PipelineExecutionContext* pipelineCtx, const OperatorHandlerId index)

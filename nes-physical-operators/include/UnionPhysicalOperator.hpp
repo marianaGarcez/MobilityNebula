@@ -14,7 +14,7 @@
 #pragma once
 
 #include <optional>
-#include <nautilus/Interface/Record.hpp>
+#include <Nautilus/Interface/Record.hpp>
 #include <PhysicalOperator.hpp>
 
 namespace NES

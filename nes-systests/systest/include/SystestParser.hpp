@@ -26,9 +26,7 @@
 #include <DataTypes/DataType.hpp>
 #include <SystestSources/SourceTypes.hpp>
 #include <ErrorHandling.hpp>
-#ifdef NES_ENABLE_INFERENCE
 #include <ModelCatalog.hpp>
-#endif
 #include <SystestState.hpp>
 
 namespace NES::Systest
@@ -96,9 +94,7 @@ public:
     using ResultTuplesCallback = std::function<void(std::vector<std::string>&&, SystestQueryId correspondingQueryId)>;
     using SystestLogicalSourceCallback = std::function<void(const SystestLogicalSource&)>;
     using SystestAttachSourceCallback = std::function<void(SystestAttachSource attachSource)>;
-#ifdef NES_ENABLE_INFERENCE
     using ModelCallback = std::function<void(Nebuli::Inference::ModelDescriptor&&)>;
-#endif
     using SystestSinkCallback = std::function<void(SystestSink&&)>;
     using ErrorExpectationCallback = std::function<void(const ErrorExpectation&)>;
 
@@ -106,9 +102,7 @@ public:
     void registerOnQueryCallback(QueryCallback callback);
     void registerOnResultTuplesCallback(ResultTuplesCallback callback);
     void registerOnSystestLogicalSourceCallback(SystestLogicalSourceCallback callback);
-#ifdef NES_ENABLE_INFERENCE
     void registerOnModelCallback(ModelCallback callback);
-#endif
     void registerOnSystestAttachSourceCallback(SystestAttachSourceCallback callback);
     void registerOnSystestSinkCallback(SystestSinkCallback callback);
     void registerOnErrorExpectationCallback(ErrorExpectationCallback callback);
@@ -132,9 +126,7 @@ private:
 
     [[nodiscard]] std::pair<SystestLogicalSource, std::optional<SystestAttachSource>> expectSystestLogicalSource();
     [[nodiscard]] SystestAttachSource expectAttachSource();
-#ifdef NES_ENABLE_INFERENCE
     [[nodiscard]] Nebuli::Inference::ModelDescriptor expectModel();
-#endif
     [[nodiscard]] SystestSink expectSink() const;
     [[nodiscard]] std::vector<std::string> expectTuples(bool ignoreFirst);
     [[nodiscard]] std::filesystem::path expectFilePath();
@@ -143,9 +135,7 @@ private:
 
     QueryCallback onQueryCallback;
     ResultTuplesCallback onResultTuplesCallback;
-#ifdef NES_ENABLE_INFERENCE
     ModelCallback onModelCallback;
-#endif
     SystestLogicalSourceCallback onSystestLogicalSourceCallback;
     SystestAttachSourceCallback onAttachSourceCallback;
     SystestSinkCallback onSystestSinkCallback;

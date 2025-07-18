@@ -43,9 +43,7 @@
 #include <WindowTypes/Types/TimeBasedWindowType.hpp>
 #include <WindowTypes/Types/WindowType.hpp>
 #include <ErrorHandling.hpp>
-#ifdef NES_ENABLE_INFERENCE
 #include <LogicalInferModelNameOperator.hpp>
-#endif
 
 namespace NES
 {
@@ -124,17 +122,10 @@ LogicalPlan LogicalPlanBuilder::addUnion(LogicalPlan leftLogicalPlan, LogicalPla
 }
 
 LogicalPlan
-LogicalPlanBuilder::addInferModel([[maybe_unused]] const std::string& model, 
-                                  [[maybe_unused]] const std::vector<LogicalFunction>& inputFields, 
-                                  LogicalPlan queryPlan)
+LogicalPlanBuilder::addInferModel(const std::string& model, const std::vector<LogicalFunction>& inputFields, LogicalPlan queryPlan)
 {
-#ifdef NES_ENABLE_INFERENCE
     NES_TRACE("QueryPlanBuilder: add map inferModel to query plan");
     return promoteOperatorToRoot(queryPlan, LogicalOperator(InferModel::LogicalInferModelNameOperator(model, inputFields)));
-#else
-    NES_WARNING("Inference support is disabled. addInferModel will return the query plan unchanged.");
-    return queryPlan;
-#endif
 }
 
 

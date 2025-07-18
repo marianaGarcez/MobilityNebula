@@ -12,7 +12,7 @@
     limitations under the License.
 */
 
-#include <Functions/TemporalIntersectsFunction.hpp>
+#include <Functions/Meos/TemporalIntersectsFunction.hpp>
 #include <DataTypes/DataTypeProvider.hpp>
 #include <Serialization/DataTypeSerializationUtil.hpp>
 #include <fmt/format.h>

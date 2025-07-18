@@ -16,28 +16,28 @@ add_library(nes-meos STATIC MEOSWrapper.cpp)
 # Set include directories
 target_include_directories(nes-meos
         PUBLIC include
-        PRIVATE .
+        PUBLIC .
 )
 
-# Debug: Check if MEOS variables are set
-message(STATUS "MEOS variables - meos_FOUND: ${meos_FOUND}, meos_LIBRARY: ${meos_LIBRARY}, meos_INCLUDE_DIR: ${meos_INCLUDE_DIR}")
+# Link with MEOS library
+# Check if meos variables are available from parent scope
+if(NOT DEFINED meos OR NOT DEFINED meos_INCLUDE_DIR)
+    # If not found in parent scope, find it here
+    find_package(meos REQUIRED)
+endif()
 
-# Link with MEOS library using the imported target
-if(TARGET meos::meos)
-    target_link_libraries(nes-meos PUBLIC meos::meos)
-    message(STATUS "Linking nes-meos with meos::meos imported target")
-    # Also print the imported location
-    get_target_property(MEOS_LOCATION meos::meos IMPORTED_LOCATION)
-    message(STATUS "meos::meos imported location: ${MEOS_LOCATION}")
+if(meos AND meos_INCLUDE_DIR)
+    target_link_libraries(nes-meos PUBLIC ${meos})
+    target_include_directories(nes-meos PUBLIC ${meos_INCLUDE_DIR})
+    # Also link MEOS dependencies
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GEOS REQUIRED geos)
+    pkg_check_modules(PROJ REQUIRED proj)
+    find_library(GSL_LIB gsl)
+    find_library(JSON_C_LIB json-c)
+    target_link_libraries(nes-meos PUBLIC ${GEOS_LIBRARIES} ${PROJ_LIBRARIES} ${GSL_LIB} ${JSON_C_LIB})
 else()
-    # Fallback to direct library linking
-    if(meos_LIBRARY)
-        target_link_libraries(nes-meos PUBLIC ${meos_LIBRARY})
-        target_include_directories(nes-meos PUBLIC ${meos_INCLUDE_DIR})
-        message(STATUS "Linking nes-meos with ${meos_LIBRARY}")
-    else()
-        message(FATAL_ERROR "MEOS library not found - meos_LIBRARY is not set")
-    endif()
+    message(FATAL_ERROR "MEOS library not found. meos=${meos}, meos_INCLUDE_DIR=${meos_INCLUDE_DIR}")
 endif()
 
 # Link with NebulaStream dependencies  

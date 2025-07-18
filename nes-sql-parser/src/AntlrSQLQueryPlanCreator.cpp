@@ -47,7 +47,7 @@
 #include <Functions/FieldAssignmentLogicalFunction.hpp>
 #include <Functions/LogicalFunction.hpp>
 #include <Functions/LogicalFunctionProvider.hpp>
-#include <Functions/TemporalIntersectsFunction.hpp>
+#include <Functions/Meos/TemporalIntersectsFunction.hpp>
 #include <Operators/Windows/Aggregations/ArrayAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/AvgAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/CountAggregationLogicalFunction.hpp>
@@ -55,9 +55,8 @@
 #include <Operators/Windows/Aggregations/MedianAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/MinAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/SumAggregationLogicalFunction.hpp>
-#include <Operators/Windows/Aggregations/ArrayAggregationLogicalFunction.hpp>
-#include <Operators/Windows/Aggregations/VarAggregationLogicalFunction.hpp>
-#include <Operators/Windows/Aggregations/TemporalSequenceAggregationLogicalFunction.hpp>
+#include <Operators/Windows/Aggregations/Meos/VarAggregationLogicalFunction.hpp>
+#include <Operators/Windows/Aggregations/Meos/TemporalSequenceAggregationLogicalFunction.hpp>
 #include <Operators/Windows/JoinLogicalOperator.hpp>
 #include <Plans/LogicalPlan.hpp>
 #include <Plans/LogicalPlanBuilder.hpp>
@@ -988,8 +987,6 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                     TemporalSequenceAggregationLogicalFunction::create(longitudeFunction.get<FieldAccessLogicalFunction>(),
                                                                       latitudeFunction.get<FieldAccessLogicalFunction>(),
                                                                       timestampFunction.get<FieldAccessLogicalFunction>()));
-                // Push back one function for named expression handling
-                helpers.top().functionBuilder.push_back(longitudeFunction);
             }
             break;
         default:

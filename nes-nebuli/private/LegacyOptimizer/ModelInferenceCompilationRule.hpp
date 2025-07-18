@@ -16,9 +16,7 @@
 
 #include <memory>
 #include <Plans/LogicalPlan.hpp>
-#ifdef NES_ENABLE_INFERENCE
 #include <ModelCatalog.hpp>
-#endif
 
 namespace NES::LegacyOptimizer
 {
@@ -26,16 +24,10 @@ namespace NES::LegacyOptimizer
 class ModelInferenceCompilationRule
 {
 public:
-#ifdef NES_ENABLE_INFERENCE
     explicit ModelInferenceCompilationRule(std::shared_ptr<const NES::Nebuli::Inference::ModelCatalog> modelCatalog);
-#else
-    explicit ModelInferenceCompilationRule(std::shared_ptr<const void> modelCatalog);
-#endif
     void apply(LogicalPlan& queryPlan);
 
 private:
-#ifdef NES_ENABLE_INFERENCE
     std::shared_ptr<const NES::Nebuli::Inference::ModelCatalog> catalog;
-#endif
 };
 }
