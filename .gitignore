@@ -52,3 +52,14 @@ scripts/__pycache__
 .nix/ctest
 .nix/ninja
 .nix/gdb
+.venv/
+Data/
+Output/
+Results/
+Testing/
+build-host/
+build-local/
+run/
+  
+EngineStats_*.stats
+
