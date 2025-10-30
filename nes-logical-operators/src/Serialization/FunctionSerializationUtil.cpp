@@ -12,14 +12,16 @@
     limitations under the License.
 */
 
+#include <Serialization/FunctionSerializationUtil.hpp>
+
 #include <memory>
 #include <vector>
+
 #include <Configurations/Descriptor.hpp>
 #include <Functions/FieldAccessLogicalFunction.hpp>
 #include <Functions/LogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/WindowAggregationLogicalFunction.hpp>
 #include <Serialization/DataTypeSerializationUtil.hpp>
-#include <Serialization/FunctionSerializationUtil.hpp>
 #include <AggregationLogicalFunctionRegistry.hpp>
 #include <ErrorHandling.hpp>
 #include <LogicalFunctionRegistry.hpp>
@@ -40,10 +42,10 @@ LogicalFunction deserializeFunction(const SerializableFunction& serializedFuncti
 
     auto dataType = DataTypeSerializationUtil::deserializeDataType(serializedFunction.data_type());
 
-    NES::Configurations::DescriptorConfig::Config functionDescriptorConfig{};
+    DescriptorConfig::Config functionDescriptorConfig{};
     for (const auto& [key, value] : serializedFunction.config())
     {
-        functionDescriptorConfig[key] = Configurations::protoToDescriptorConfigType(value);
+        functionDescriptorConfig[key] = protoToDescriptorConfigType(value);
     }
 
     auto argument = LogicalFunctionRegistryArguments(functionDescriptorConfig, deserializedChildren, dataType);
@@ -67,20 +69,7 @@ deserializeWindowAggregationFunction(const SerializableAggregationFunction& seri
         if (auto asFieldAccess = asField.tryGet<FieldAccessLogicalFunction>())
         {
             AggregationLogicalFunctionRegistryArguments args;
-            args.fields.push_back(fieldAccess.value());
-            for (const auto& extra : serializedFunction.extra_fields())
-            {
-                const auto extraFunction = deserializeFunction(extra);
-                if (auto extraAccess = extraFunction.tryGet<FieldAccessLogicalFunction>())
-                {
-                    args.fields.push_back(extraAccess.value());
-                }
-                else
-                {
-                    throw UnknownLogicalOperator();
-                }
-            }
-            args.fields.push_back(asFieldAccess.value());
+            args.fields = {fieldAccess.value(), asFieldAccess.value()};
 
             if (auto function = AggregationLogicalFunctionRegistry::instance().create(type, args))
             {

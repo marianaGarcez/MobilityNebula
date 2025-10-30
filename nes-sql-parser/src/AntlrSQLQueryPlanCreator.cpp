@@ -14,9 +14,9 @@
 
 #include <AntlrSQLParser/AntlrSQLQueryPlanCreator.hpp>
 
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <memory>
 #include <optional>
 #include <ranges>
@@ -48,22 +48,12 @@
 #include <Functions/FieldAssignmentLogicalFunction.hpp>
 #include <Functions/LogicalFunction.hpp>
 #include <Functions/LogicalFunctionProvider.hpp>
-#include <Functions/Meos/TemporalIntersectsFunction.hpp>
-#include <Functions/Meos/TemporalIntersectsGeometryLogicalFunction.hpp>
-#include <Functions/Meos/TemporalEContainsGeometryLogicalFunction.hpp>
-#include <Operators/Windows/Aggregations/ArrayAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/AvgAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/CountAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/MaxAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/MedianAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/MinAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/SumAggregationLogicalFunction.hpp>
-#include <Operators/Windows/Aggregations/Meos/VarAggregationLogicalFunction.hpp>
-#include <Operators/Windows/Aggregations/Meos/TemporalSequenceAggregationLogicalFunction.hpp>
-#include <Functions/Meos/TemporalIntersectsGeometryLogicalFunction.hpp>
-#include <Functions/Meos/TemporalAIntersectsGeometryLogicalFunction.hpp>
-#include <Functions/Meos/TemporalEDWithinGeometryLogicalFunction.hpp>
-#include <Functions/Meos/TemporalAtStBoxLogicalFunction.hpp>
 #include <Operators/Windows/JoinLogicalOperator.hpp>
 #include <Plans/LogicalPlan.hpp>
 #include <Plans/LogicalPlanBuilder.hpp>
@@ -79,6 +69,29 @@
 
 namespace NES::Parsers
 {
+
+namespace
+{
+std::string parseIdentifier(AntlrSQLParser::IdentifierContext* identifier)
+{
+    if (auto* const unquotedIdentifier = dynamic_cast<AntlrSQLParser::UnquotedIdentifierContext*>(identifier->strictIdentifier()))
+    {
+        std::string text = unquotedIdentifier->getText();
+        return text | std::ranges::views::transform([](const char character) { return std::toupper(character); })
+            | std::ranges::to<std::string>();
+    }
+    if (auto* const quotedIdentifier = dynamic_cast<AntlrSQLParser::QuotedIdentifierAlternativeContext*>(identifier->strictIdentifier()))
+    {
+        const auto withQuotationMarks = quotedIdentifier->quotedIdentifier()->BACKQUOTED_IDENTIFIER()->getText();
+        return withQuotationMarks.substr(1, withQuotationMarks.size() - 2);
+    }
+    INVARIANT(
+        false,
+        "Unknown identifier type, was neither valid quoted or unquoted, is the grammar out of sync with the binder or was a nullptr "
+        "passed?");
+    std::unreachable();
+}
+}
 
 LogicalPlan AntlrSQLQueryPlanCreator::getQueryPlan() const
 {
@@ -178,7 +191,7 @@ void AntlrSQLQueryPlanCreator::enterSinkClause(AntlrSQLParser::SinkClauseContext
     for (const auto& sink : context->sink())
     {
         const auto sinkIdentifier = sink->identifier();
-        sinkNames.emplace_back(sinkIdentifier->getText());
+        sinkNames.emplace_back(parseIdentifier(sinkIdentifier));
     }
 }
 
@@ -201,7 +214,6 @@ void AntlrSQLQueryPlanCreator::exitLogicalBinary(AntlrSQLParser::LogicalBinaryCo
         const auto opTokenType = context->op->getType();
         const auto function = createLogicalBinaryFunction(leftFunction, rightFunction, opTokenType);
         helpers.top().joinKeyRelationHelper.push_back(function);
-        helpers.top().joinFunction = function;
     }
     else
     {
@@ -258,6 +270,7 @@ void AntlrSQLQueryPlanCreator::enterComparisonOperator(AntlrSQLParser::Compariso
     helpers.top().opBoolean = opTokenType;
     AntlrSQLBaseListener::enterComparisonOperator(context);
 }
+
 void AntlrSQLQueryPlanCreator::exitArithmeticBinary(AntlrSQLParser::ArithmeticBinaryContext* context)
 {
     if (helpers.empty())
@@ -352,7 +365,6 @@ void AntlrSQLQueryPlanCreator::enterUnquotedIdentifier(AntlrSQLParser::UnquotedI
     AntlrSQLBaseListener::enterUnquotedIdentifier(context);
 }
 
-
 void AntlrSQLQueryPlanCreator::enterIdentifier(AntlrSQLParser::IdentifierContext* context)
 {
     /// Get Index of Parent Rule to check type of parent rule in conditions
@@ -363,20 +375,18 @@ void AntlrSQLQueryPlanCreator::enterIdentifier(AntlrSQLParser::IdentifierContext
     }
     if (helpers.top().isGroupBy)
     {
-        helpers.top().groupByFields.emplace_back(context->getText());
+        helpers.top().groupByFields.emplace_back(parseIdentifier(context));
     }
     else if (
-        (helpers.top().isWhereOrHaving || helpers.top().isSelect || helpers.top().isWindow) && !helpers.top().isInferModelInput
+        (helpers.top().isWhereOrHaving || helpers.top().isSelect || helpers.top().isWindow)
         && AntlrSQLParser::RulePrimaryExpression == parentRuleIndex)
     {
-        /// add identifiers in select, window, where and having clauses to the function builder list
-        /// if inference is in select, ignore the model input fields
-        helpers.top().functionBuilder.emplace_back(FieldAccessLogicalFunction(context->getText()));
+        helpers.top().functionBuilder.emplace_back(FieldAccessLogicalFunction(parseIdentifier(context)));
     }
     else if (helpers.top().isFrom and not helpers.top().isJoinRelation and AntlrSQLParser::RuleErrorCapturingIdentifier == parentRuleIndex)
     {
         /// get main source name
-        helpers.top().setSource(context->getText());
+        helpers.top().setSource(parseIdentifier(context));
     }
     else if (
         AntlrSQLParser::RuleNamedExpression == parentRuleIndex and helpers.top().isInFunctionCall() and not helpers.top().isJoinRelation
@@ -391,44 +401,35 @@ void AntlrSQLQueryPlanCreator::enterIdentifier(AntlrSQLParser::IdentifierContext
         {
             /// The user specified named expression (field access or function) with 'AS THE_NAME'
             /// (we handle cases where the user did not specify a name via 'AS' in 'exitNamedExpression')
-            const auto attribute = helpers.top().functionBuilder.back();
+            const auto attribute = std::move(helpers.top().functionBuilder.back());
             helpers.top().functionBuilder.pop_back();
-            auto renamedAttribute = FieldAssignmentLogicalFunction(FieldAccessLogicalFunction(context->getText()), attribute);
-            helpers.top().addProjectionField(renamedAttribute.getField());
-            helpers.top().mapBuilder.push_back(renamedAttribute);
+            helpers.top().addProjection(FieldIdentifier(parseIdentifier(context)), attribute);
         }
     }
     else if (helpers.top().isInAggFunction() and AntlrSQLParser::RuleNamedExpression == parentRuleIndex)
     {
         auto aggFunc = helpers.top().windowAggs.back();
         helpers.top().windowAggs.pop_back();
-        aggFunc->asField = (FieldAccessLogicalFunction(context->getText()));
+        aggFunc->asField = (FieldAccessLogicalFunction(parseIdentifier(context)));
         helpers.top().windowAggs.push_back(aggFunc);
         INVARIANT(
             std::nullopt != helpers.top().functionBuilder.back().tryGet<FieldAccessLogicalFunction>(),
             "The functionBuilder should hold the AccessFunction of the name of the field the aggregation is executed on.");
         helpers.top().functionBuilder.pop_back();
+        helpers.top().addProjection(std::nullopt, aggFunc->asField);
         helpers.top().hasUnnamedAggregation = false;
-        helpers.top().addProjectionField(aggFunc->asField);
-    }
-    else if (helpers.top().isInferModelInput)
-    {
-        if (helpers.top().isInFunctionCall())
-            helpers.top().functionBuilder.push_back(FieldAccessLogicalFunction(context->getText()));
-        else
-            helpers.top().inferModelInputs.push_back(FieldAccessLogicalFunction(context->getText()));
     }
     else if (helpers.top().isJoinRelation and AntlrSQLParser::RulePrimaryExpression == parentRuleIndex)
     {
-        helpers.top().joinKeyRelationHelper.emplace_back(FieldAccessLogicalFunction(context->getText()));
+        helpers.top().joinKeyRelationHelper.emplace_back(FieldAccessLogicalFunction(parseIdentifier(context)));
     }
     else if (helpers.top().isJoinRelation and AntlrSQLParser::RuleErrorCapturingIdentifier == parentRuleIndex)
     {
-        helpers.top().joinSources.push_back(context->getText());
+        helpers.top().joinSources.push_back(parseIdentifier(context));
     }
     else if (helpers.top().isJoinRelation and AntlrSQLParser::RuleTableAlias == parentRuleIndex)
     {
-        helpers.top().joinSourceRenames.push_back(context->getText());
+        helpers.top().joinSourceRenames.push_back(parseIdentifier(context));
     }
 }
 
@@ -439,25 +440,11 @@ void AntlrSQLQueryPlanCreator::enterPrimaryQuery(AntlrSQLParser::PrimaryQueryCon
         throw InvalidQuerySyntax("Subqueries are only supported in FROM clauses, but got {}", context->getText());
     }
 
-    AntlrSQLHelper helper;
-
-    /// Get Index of  Parent Rule to check type of parent rule in conditions
-    const auto parentContext = dynamic_cast<antlr4::ParserRuleContext*>(context->parent);
-    std::optional<size_t> parentRuleIndex;
-    if (parentContext != nullptr)
-    {
-        parentRuleIndex = parentContext->getRuleIndex();
-    }
-
-    /// PrimaryQuery is a queryterm too, but if it's a child of a queryterm we are in a union!
-    if (parentRuleIndex == AntlrSQLParser::RuleQueryTerm)
-    {
-        helper.isSetOperation = true;
-    }
-
+    const AntlrSQLHelper helper;
     helpers.push(helper);
     AntlrSQLBaseListener::enterPrimaryQuery(context);
 }
+
 void AntlrSQLQueryPlanCreator::exitPrimaryQuery(AntlrSQLParser::PrimaryQueryContext* context)
 {
     LogicalPlan queryPlan;
@@ -476,31 +463,14 @@ void AntlrSQLQueryPlanCreator::exitPrimaryQuery(AntlrSQLParser::PrimaryQueryCont
         queryPlan = LogicalPlanBuilder::addSelection(std::move(*whereExpr), queryPlan);
     }
 
-    if (!helpers.top().inferModelInputFields.empty())
-    {
-        for (size_t i = 0; i < helpers.top().inferModelInputModel.size(); ++i)
-        {
-            queryPlan = LogicalPlanBuilder::addInferModel(
-                helpers.top().inferModelInputModel[i], helpers.top().inferModelInputFields[i], queryPlan);
-        }
-    }
-
     if (helpers.top().isInAggFunction())
     {
         queryPlan = LogicalPlanBuilder::addWindowAggregation(
             queryPlan, helpers.top().windowType, helpers.top().windowAggs, helpers.top().groupByFields);
     }
-    for (const auto& mapExpr : helpers.top().mapBuilder)
-    {
-        queryPlan = LogicalPlanBuilder::addMap(mapExpr, queryPlan);
-    }
-    /// We handle projections AFTER map functions, because:
-    /// SELECT (id * 3) as new_id FROM ...
-    ///     we project on new_id, but new_id is the result of an function, so we need to execute the function before projecting.
-    if (not helpers.top().getProjectionFields().empty())
-    {
-        queryPlan = LogicalPlanBuilder::addProjection(std::move(helpers.top().getProjectionFields()), queryPlan);
-    }
+
+    queryPlan = LogicalPlanBuilder::addProjection(helpers.top().getProjections(), helpers.top().asterisk, queryPlan);
+
     if (helpers.top().windowType != nullptr)
     {
         for (auto havingExpr = helpers.top().getHavingClauses().rbegin(); havingExpr != helpers.top().getHavingClauses().rend();
@@ -509,21 +479,8 @@ void AntlrSQLQueryPlanCreator::exitPrimaryQuery(AntlrSQLParser::PrimaryQueryCont
             queryPlan = LogicalPlanBuilder::addSelection(*havingExpr, queryPlan);
         }
     }
-
-    if (!helpers.top().inferModelAggInputFields.empty())
-    {
-        INVARIANT(
-            helpers.top().inferModelInputModel.size() == helpers.top().inferModelAggInputFields.size(),
-            "The number of input models and input fields must be equal.");
-        for (auto [model, field] : std::views::zip(helpers.top().inferModelInputModel, helpers.top().inferModelAggInputFields))
-        {
-            queryPlan = LogicalPlanBuilder::addInferModel(model, field, queryPlan);
-        }
-    }
-
-    auto isSetOperation = helpers.top().isSetOperation;
     helpers.pop();
-    if (helpers.empty() or isSetOperation)
+    if (helpers.empty())
     {
         queryPlans.push(queryPlan);
     }
@@ -534,11 +491,13 @@ void AntlrSQLQueryPlanCreator::exitPrimaryQuery(AntlrSQLParser::PrimaryQueryCont
     }
     AntlrSQLBaseListener::exitPrimaryQuery(context);
 }
+
 void AntlrSQLQueryPlanCreator::enterWindowClause(AntlrSQLParser::WindowClauseContext* context)
 {
     helpers.top().isWindow = true;
     AntlrSQLBaseListener::enterWindowClause(context);
 }
+
 void AntlrSQLQueryPlanCreator::exitWindowClause(AntlrSQLParser::WindowClauseContext* context)
 {
     helpers.top().isWindow = false;
@@ -588,7 +547,7 @@ void AntlrSQLQueryPlanCreator::exitAdvancebyParameter(AntlrSQLParser::AdvancebyP
 
 void AntlrSQLQueryPlanCreator::exitTimestampParameter(AntlrSQLParser::TimestampParameterContext* context)
 {
-    helpers.top().timestamp = context->getText();
+    helpers.top().timestamp = parseIdentifier(context->name);
 }
 
 /// WINDOWS
@@ -629,35 +588,17 @@ void AntlrSQLQueryPlanCreator::exitSlidingWindow(AntlrSQLParser::SlidingWindowCo
 
 void AntlrSQLQueryPlanCreator::exitNamedExpression(AntlrSQLParser::NamedExpressionContext* context)
 {
-    /// If the current functions consist of a single field access, the user simply specified a field/attribute to access
-    if (helpers.top().functionBuilder.size() == 1 and helpers.top().functionBuilder.back().tryGet<FieldAccessLogicalFunction>()
-        and not helpers.top().hasUnnamedAggregation)
+    AntlrSQLHelper& helper = helpers.top();
+    if (context->name == nullptr and helper.functionBuilder.size() == 1
+        and helper.functionBuilder.back().tryGet<FieldAccessLogicalFunction>() and not helpers.top().hasUnnamedAggregation)
     {
         /// Project onto the specified field and remove the field access from the active functions.
-        helpers.top().addProjectionField(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>());
+        helpers.top().addProjection(std::nullopt, std::move(helpers.top().functionBuilder.back()));
         helpers.top().functionBuilder.pop_back();
     }
-    /// The user either specified a '*', in which case the functionBuilder should be empty, or a function on the attribute
-    /// (e.g., SELECT id + 2 ...). If the user did not specify a name (... AS THE_NAME), we need to generate a name.
-    else if (context->name == nullptr and not helpers.top().functionBuilder.empty() and not helpers.top().hasUnnamedAggregation)
+    else if (helper.isSelect && context->getText() == "*" && helper.functionBuilder.empty())
     {
-        const auto mapFunction = helpers.top().functionBuilder.back();
-        const auto fieldAccessFunctions = mapFunction.getChildren()
-            | std::views::transform([](auto& child) { return child.template tryGet<FieldAccessLogicalFunction>(); })
-            | std::ranges::to<std::vector>();
-
-        if (!(fieldAccessFunctions.size() == 1 and fieldAccessFunctions.front().has_value()))
-        {
-            throw InvalidQuerySyntax("A named function must have exactly one valid FieldAccessLogicalFunction child.");
-        }
-        const auto implicitFieldName
-            = fmt::format("{}_{}", fieldAccessFunctions.at(0).value().getFieldName(), helpers.top().implicitMapCountHelper++);
-        const auto mapFunctionWithFieldAssignment
-            = FieldAssignmentLogicalFunction(FieldAccessLogicalFunction(implicitFieldName), mapFunction);
-        helpers.top().mapBuilder.push_back(mapFunctionWithFieldAssignment);
-        /// Projections always follow map functions. Thus, we need to project on the field assigned by the map function.
-        helpers.top().addProjectionField(mapFunctionWithFieldAssignment.getField());
-        helpers.top().functionBuilder.pop_back();
+        helper.asterisk = true;
     }
     /// The user did not specify a new name (... AS THE_NAME) for the aggregation function and we need to generate one.
     else if (context->name == nullptr and not helpers.top().functionBuilder.empty() and helpers.top().hasUnnamedAggregation)
@@ -666,13 +607,13 @@ void AntlrSQLQueryPlanCreator::exitNamedExpression(AntlrSQLParser::NamedExpressi
         helpers.top().functionBuilder.pop_back();
         const auto fieldAccessNode = accessFunction.get<FieldAccessLogicalFunction>();
         const auto lastAggregation = helpers.top().windowAggs.back();
-        const auto newName = fmt::format("{}_{}", fieldAccessNode.getFieldName(), lastAggregation->getName());
+        const auto newName = fmt::format("{}_{}", fieldAccessNode.getFieldName(), Util::toUpperCase(lastAggregation->getName()));
         const auto asField = FieldAccessLogicalFunction(newName);
         lastAggregation->asField = asField;
         helpers.top().windowAggs.pop_back();
         helpers.top().windowAggs.push_back(lastAggregation);
+        helpers.top().addProjection(std::nullopt, asField);
         helpers.top().hasUnnamedAggregation = false;
-        helpers.top().addProjectionField(asField);
     }
     AntlrSQLBaseListener::exitNamedExpression(context);
 }
@@ -715,7 +656,6 @@ void AntlrSQLQueryPlanCreator::exitComparison(AntlrSQLParser::ComparisonContext*
         helpers.top().joinKeyRelationHelper.pop_back();
         const auto function = createFunctionFromOpBoolean(leftFunction, rightFunction, helpers.top().opBoolean);
         helpers.top().joinKeyRelationHelper.push_back(function);
-        helpers.top().joinFunction = function;
     }
     else
     {
@@ -732,43 +672,6 @@ void AntlrSQLQueryPlanCreator::exitComparison(AntlrSQLParser::ComparisonContext*
         helpers.top().functionBuilder.push_back(function);
     }
     AntlrSQLBaseListener::exitComparison(context);
-}
-
-void AntlrSQLQueryPlanCreator::enterInference(AntlrSQLParser::InferenceContext* context)
-{
-    helpers.top().isInferModel = true;
-    const AntlrSQLHelper helper = helpers.top();
-    AntlrSQLBaseListener::enterInference(context);
-}
-
-void AntlrSQLQueryPlanCreator::exitInference(AntlrSQLParser::InferenceContext* context)
-{
-    helpers.top().isInferModel = false;
-    std::string model = context->children[2]->getText();
-    helpers.top().inferModelInputModel.push_back(model);
-    AntlrSQLBaseListener::exitInference(context);
-}
-
-void AntlrSQLQueryPlanCreator::enterInferModelInputFields(AntlrSQLParser::InferModelInputFieldsContext* context)
-{
-    helpers.top().isInferModelInput = true;
-    AntlrSQLBaseListener::enterInferModelInputFields(context);
-}
-
-void AntlrSQLQueryPlanCreator::exitInferModelInputFields(AntlrSQLParser::InferModelInputFieldsContext* context)
-{
-    if (!helpers.top().inferModelInputs.empty())
-    {
-        helpers.top().inferModelInputFields.push_back(helpers.top().inferModelInputs);
-        helpers.top().inferModelInputs.clear();
-    }
-    else
-    {
-        helpers.top().inferModelAggInputFields.push_back(helpers.top().inferModelAggInputs);
-        helpers.top().inferModelAggInputs.clear();
-    }
-    helpers.top().isInferModelInput = false;
-    AntlrSQLBaseListener::exitInferModelInputFields(context);
 }
 
 void AntlrSQLQueryPlanCreator::enterJoinRelation(AntlrSQLParser::JoinRelationContext* context)
@@ -827,16 +730,16 @@ void AntlrSQLQueryPlanCreator::exitJoinRelation(AntlrSQLParser::JoinRelationCont
     const auto rightQueryPlan = helpers.top().queryPlans[1];
     helpers.top().queryPlans.clear();
 
-    if (!helpers.top().joinFunction)
+    if (helpers.top().joinKeyRelationHelper.size() != 1)
     {
         throw InvalidQuerySyntax("joinFunction is required but empty at {}", context->getText());
     }
     if (!helpers.top().windowType)
     {
-        throw InvalidQuerySyntax("joinFunction is required but empty at {}", context->getText());
+        throw InvalidQuerySyntax("windowType is required but empty at {}", context->getText());
     }
     const auto queryPlan = LogicalPlanBuilder::addJoin(
-        leftQueryPlan, rightQueryPlan, helpers.top().joinFunction.value(), helpers.top().windowType, helpers.top().joinType);
+        leftQueryPlan, rightQueryPlan, helpers.top().joinKeyRelationHelper.at(0), helpers.top().windowType, helpers.top().joinType);
     if (not helpers.empty())
     {
         /// we are in a subquery
@@ -866,13 +769,8 @@ void AntlrSQLQueryPlanCreator::exitLogicalNot(AntlrSQLParser::LogicalNotContext*
         }
         const auto innerFunction = helpers.top().joinKeyRelationHelper.back();
         helpers.top().joinKeyRelationHelper.pop_back();
-        if (!helpers.top().joinFunction)
-        {
-            throw InvalidQuerySyntax("Negate requires child op at {}", context->getText());
-        }
-        auto negatedFunction = NegateLogicalFunction(helpers.top().joinFunction.value());
+        auto negatedFunction = NegateLogicalFunction(innerFunction);
         helpers.top().joinKeyRelationHelper.emplace_back(negatedFunction);
-        helpers.top().joinFunction = negatedFunction;
     }
     else
     {
@@ -900,7 +798,7 @@ void AntlrSQLQueryPlanCreator::exitConstantDefault(AntlrSQLParser::ConstantDefau
             throw InvalidQuerySyntax(
                 "A constant string literal must contain at least two quotes and must not be empty at {}", context->getText());
         }
-        helpers.top().constantBuilder.push_back(stringLiteralContext->getText().substr(1, stringLiteralContext->getText().size() - 2));
+        helpers.top().constantBuilder.push_back(context->getText().substr(1, stringLiteralContext->getText().size() - 2));
     }
     else
     {
@@ -913,11 +811,6 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
     const auto funcName = Util::toUpperCase(context->children[0]->getText());
     const auto tokenType = context->getStart()->getType();
 
-    if (helpers.top().isInferModelInput)
-    {
-        helpers.top().inferModelAggInputs.push_back(helpers.top().functionBuilder.back());
-    }
-
     helpers.top().hasUnnamedAggregation = true;
     switch (tokenType) /// TODO #619: improve this switch case
     {
@@ -927,7 +820,7 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                 throw InvalidQuerySyntax("Aggregation requires argument at {}", context->getText());
             }
             helpers.top().windowAggs.push_back(
-                CountAggregationLogicalFunction::create(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
+                std::make_shared<CountAggregationLogicalFunction>(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
             break;
         case AntlrSQLLexer::AVG:
             if (helpers.top().functionBuilder.empty())
@@ -935,7 +828,7 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                 throw InvalidQuerySyntax("Aggregation requires argument at {}", context->getText());
             }
             helpers.top().windowAggs.push_back(
-                AvgAggregationLogicalFunction::create(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
+                std::make_shared<AvgAggregationLogicalFunction>(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
             break;
         case AntlrSQLLexer::MAX:
             if (helpers.top().functionBuilder.empty())
@@ -943,7 +836,7 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                 throw InvalidQuerySyntax("Aggregation requires argument at {}", context->getText());
             }
             helpers.top().windowAggs.push_back(
-                MaxAggregationLogicalFunction::create(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
+                std::make_shared<MaxAggregationLogicalFunction>(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
             break;
         case AntlrSQLLexer::MIN:
             if (helpers.top().functionBuilder.empty())
@@ -951,7 +844,7 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                 throw InvalidQuerySyntax("Aggregation requires argument at {}", context->getText());
             }
             helpers.top().windowAggs.push_back(
-                MinAggregationLogicalFunction::create(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
+                std::make_shared<MinAggregationLogicalFunction>(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
             break;
         case AntlrSQLLexer::SUM:
             if (helpers.top().functionBuilder.empty())
@@ -959,7 +852,7 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                 throw InvalidQuerySyntax("Aggregation requires argument at {}", context->getText());
             }
             helpers.top().windowAggs.push_back(
-                SumAggregationLogicalFunction::create(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
+                std::make_shared<SumAggregationLogicalFunction>(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
             break;
         case AntlrSQLLexer::MEDIAN:
             if (helpers.top().functionBuilder.empty())
@@ -967,304 +860,8 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                 throw InvalidQuerySyntax("Aggregation requires argument at {}", context->getText());
             }
             helpers.top().windowAggs.push_back(
-                MedianAggregationLogicalFunction::create(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
+                std::make_shared<MedianAggregationLogicalFunction>(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
             break;
-        case AntlrSQLLexer::ARRAY_AGG:
-            helpers.top().windowAggs.push_back(
-                ArrayAggregationLogicalFunction::create(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
-            break;
-        case AntlrSQLLexer::VAR:
-            if (helpers.top().functionBuilder.empty())
-            {
-                throw InvalidQuerySyntax("Aggregation requires argument at {}", context->getText());
-            }
-            helpers.top().windowAggs.push_back(
-                VarAggregationLogicalFunction::create(helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>()));
-            break;
-        case AntlrSQLLexer::TEMPORAL_SEQUENCE:
-            if (helpers.top().functionBuilder.size() != 3) {
-                throw InvalidQuerySyntax("TEMPORAL_SEQUENCE requires exactly three arguments (longitude, latitude, timestamp), but got {}", helpers.top().functionBuilder.size());
-            }
-            {
-                const auto timestampFunction = helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                const auto latitudeFunction = helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                const auto longitudeFunction = helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                
-                // Verify all arguments are field access functions
-                if (!longitudeFunction.tryGet<FieldAccessLogicalFunction>() ||
-                    !latitudeFunction.tryGet<FieldAccessLogicalFunction>() ||
-                    !timestampFunction.tryGet<FieldAccessLogicalFunction>()) {
-                    throw InvalidQuerySyntax("TEMPORAL_SEQUENCE arguments must be field references");
-                }
-                
-                helpers.top().windowAggs.push_back(
-                    TemporalSequenceAggregationLogicalFunction::create(longitudeFunction.get<FieldAccessLogicalFunction>(),
-                                                                      latitudeFunction.get<FieldAccessLogicalFunction>(),
-                                                                      timestampFunction.get<FieldAccessLogicalFunction>()));
-                // Push back one field access function to satisfy parser expectations
-                // This prevents the functionBuilder from being empty when processing the identifier
-                helpers.top().functionBuilder.push_back(longitudeFunction);
-            }
-            break;
-        case AntlrSQLLexer::TEMPORAL_EINTERSECTS_GEOMETRY:
-            {
-                // Convert constants from constantBuilder to ConstantValueLogicalFunction objects
-                while (!helpers.top().constantBuilder.empty()) {
-                    auto constantValue = std::move(helpers.top().constantBuilder.back());
-                    helpers.top().constantBuilder.pop_back();
-                    // Assume string constants are VARSIZED (WKT strings)
-                    auto dataType = DataTypeProvider::provideDataType(DataType::Type::VARSIZED);
-                    auto constFunction = ConstantValueLogicalFunction(dataType, std::move(constantValue));
-                    helpers.top().functionBuilder.push_back(constFunction);
-                }
-
-                const auto argCount = helpers.top().functionBuilder.size();
-                if (argCount != 4 && argCount != 6) {
-                    throw InvalidQuerySyntax("TEMPORAL_EINTERSECTS_GEOMETRY requires either 4 arguments (lon1, lat1, timestamp1, static_geometry) or 6 arguments (lon1, lat1, timestamp1, lon2, lat2, timestamp2), but got {}", argCount);
-                }
-
-                if (argCount == 4) {
-                    // 4-parameter case: temporal-static intersection (lon1, lat1, timestamp1, static_geometry)
-                    const auto staticGeometryFunction = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto timestamp1Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto lat1Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto lon1Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    
-                    const auto function = TemporalIntersectsGeometryLogicalFunction(lon1Function, lat1Function, timestamp1Function, staticGeometryFunction);
-                    helpers.top().functionBuilder.push_back(function);
-                } else {
-                    // 6-parameter case: temporal-temporal intersection (lon1, lat1, timestamp1, lon2, lat2, timestamp2)
-                    const auto timestamp2Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto lat2Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto lon2Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto timestamp1Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto lat1Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto lon1Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    
-                    const auto function = TemporalIntersectsGeometryLogicalFunction(lon1Function, lat1Function, timestamp1Function, lon2Function, lat2Function, timestamp2Function);
-                    helpers.top().functionBuilder.push_back(function);
-                }
-            }
-            break;
-        case AntlrSQLLexer::TEMPORAL_AINTERSECTS_GEOMETRY:
-            {
-                // Convert constants from constantBuilder to ConstantValueLogicalFunction objects
-                while (!helpers.top().constantBuilder.empty()) {
-                    auto constantValue = std::move(helpers.top().constantBuilder.back());
-                    helpers.top().constantBuilder.pop_back();
-                    // Assume string constants are VARSIZED (WKT strings)
-                    auto dataType = DataTypeProvider::provideDataType(DataType::Type::VARSIZED);
-                    auto constFunction = ConstantValueLogicalFunction(dataType, std::move(constantValue));
-                    helpers.top().functionBuilder.push_back(constFunction);
-                }
-                const auto argCount = helpers.top().functionBuilder.size();
-                if (argCount != 4 && argCount != 6) {
-                    throw InvalidQuerySyntax("TEMPORAL_AINTERSECTS_GEOMETRY requires either 4 arguments (lon1, lat1, timestamp1, static_geometry) or 6 arguments (lon1, lat1, timestamp1, lon2, lat2, timestamp2), but got {}", argCount);
-                }
-                if (argCount == 4) {
-                    // 4-parameter case: temporal-static intersection (lon1, lat1, timestamp1, static_geometry)
-                    const auto staticGeometryFunction = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto timestamp1Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto lat1Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto lon1Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    
-                    const auto function = TemporalAIntersectsGeometryLogicalFunction(lon1Function, lat1Function, timestamp1Function, staticGeometryFunction);
-                    helpers.top().functionBuilder.push_back(function);
-                } else {
-                    // 6-parameter case: temporal-temporal intersection (lon1, lat1, timestamp1, lon2, lat2, timestamp2)
-                    const auto timestamp2Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto lat2Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto lon2Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto timestamp1Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto lat1Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    const auto lon1Function = helpers.top().functionBuilder.back();
-                    helpers.top().functionBuilder.pop_back();
-                    
-                    const auto function = TemporalAIntersectsGeometryLogicalFunction(lon1Function, lat1Function, timestamp1Function, lon2Function, lat2Function, timestamp2Function);
-                    helpers.top().functionBuilder.push_back(function);
-                }
-            }
-            break;
-        case AntlrSQLLexer::TEMPORAL_ECONTAINS_GEOMETRY: 
-        {
-            // move any literal WKT that’s still on constantBuilder into functionBuilder
-            while(!helpers.top().constantBuilder.empty()){
-                auto v = std::move(helpers.top().constantBuilder.back());
-                helpers.top().constantBuilder.pop_back();
-                helpers.top().functionBuilder.emplace_back(
-                    ConstantValueLogicalFunction(
-                        DataTypeProvider::provideDataType(DataType::Type::VARSIZED), std::move(v)));
-            }
-
-            const auto n = helpers.top().functionBuilder.size();
-            if(n==6){
-                auto ts2 = helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                auto lat2= helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                auto lon2= helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                auto ts1 = helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                auto lat1= helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                auto lon1= helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                helpers.top().functionBuilder.emplace_back(
-                    TemporalEContainsGeometryLogicalFunction(lon1,lat1,ts1,lon2,lat2,ts2));
-            } else if(n==4){
-                /* decide order by data-type of first arg */
-                auto last = helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                auto third= helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                auto second= helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                auto first = helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-
-                if(first.getDataType().isType(DataType::Type::VARSIZED)) // static,tgeo
-                    helpers.top().functionBuilder.emplace_back(
-                        TemporalEContainsGeometryLogicalFunction(first,second,third,last));
-                else                                                      // tgeo,static
-                    helpers.top().functionBuilder.emplace_back(
-                        TemporalEContainsGeometryLogicalFunction(first,second,third,last));
-            } else {
-                throw InvalidQuerySyntax("TEMPORAL_ECONTAINS_GEOMETRY expects 4 or 6 arguments");
-            }
-        }
-        break;
-        case AntlrSQLLexer::EDWITHIN_TGEO_GEO:
-        {
-            const auto argCount = context->expression().size();
-            if (argCount != 5)
-            {
-                throw InvalidQuerySyntax("EDWITHIN_TGEO_GEO requires exactly five arguments (lon, lat, timestamp, geometry, distance), but got {}", argCount);
-            }
-
-            // Move pending constants into the function builder (WKT last)
-            while (!helpers.top().constantBuilder.empty())
-            {
-                auto constantValue = std::move(helpers.top().constantBuilder.back());
-                helpers.top().constantBuilder.pop_back();
-
-                DataType dataType;
-                const auto upperValue = Util::toUpperCase(constantValue);
-                if (upperValue == "TRUE" || upperValue == "FALSE")
-                {
-                    dataType = DataTypeProvider::provideDataType(DataType::Type::BOOLEAN);
-                }
-                else
-                {
-                    char* endPtr = nullptr;
-                    std::strtod(constantValue.c_str(), &endPtr);
-                    if (endPtr != nullptr && *endPtr == '\0')
-                    {
-                        dataType = DataTypeProvider::provideDataType(DataType::Type::FLOAT64);
-                    }
-                    else
-                    {
-                        dataType = DataTypeProvider::provideDataType(DataType::Type::VARSIZED);
-                    }
-                }
-                helpers.top().functionBuilder.emplace_back(ConstantValueLogicalFunction(dataType, std::move(constantValue)));
-            }
-
-            const auto total = helpers.top().functionBuilder.size();
-            PRECONDITION(total >= 5, "EDWITHIN_TGEO_GEO requires (lon, lat, timestamp, geometry, distance), but got {}", total);
-
-            // Order after move: [lon, lat, ts, distance, geometry]
-            auto geometryFunction = helpers.top().functionBuilder.back(); helpers.top().functionBuilder.pop_back();
-            auto distanceFunction = helpers.top().functionBuilder.back(); helpers.top().functionBuilder.pop_back();
-            auto timestampFunction = helpers.top().functionBuilder.back(); helpers.top().functionBuilder.pop_back();
-            auto latFunction = helpers.top().functionBuilder.back(); helpers.top().functionBuilder.pop_back();
-            auto lonFunction = helpers.top().functionBuilder.back(); helpers.top().functionBuilder.pop_back();
-
-            helpers.top().functionBuilder.emplace_back(
-                TemporalEDWithinGeometryLogicalFunction(lonFunction, latFunction, timestampFunction, geometryFunction, distanceFunction));
-        }
-        break;
-        case AntlrSQLLexer::TGEO_AT_STBOX:
-        {
-            const auto argCount = context->expression().size();
-            if (argCount != 4 && argCount != 5)
-            {
-                throw InvalidQuerySyntax("TGEO_AT_STBOX requires four arguments (lon, lat, timestamp, stbox) with an optional fifth border_inc flag, but got {}", argCount);
-            }
-
-            // Move pending constants into the function builder (border first if present, STBOX last)
-            while (!helpers.top().constantBuilder.empty())
-            {
-                auto constantValue = std::move(helpers.top().constantBuilder.back());
-                helpers.top().constantBuilder.pop_back();
-
-                DataType dataType;
-                const auto upperValue = Util::toUpperCase(constantValue);
-                if (upperValue == "TRUE" || upperValue == "FALSE")
-                {
-                    dataType = DataTypeProvider::provideDataType(DataType::Type::BOOLEAN);
-                }
-                else
-                {
-                    char* endPtr = nullptr;
-                    std::strtod(constantValue.c_str(), &endPtr);
-                    if (endPtr != nullptr && *endPtr == '\0')
-                    {
-                        dataType = DataTypeProvider::provideDataType(DataType::Type::FLOAT64);
-                    }
-                    else
-                    {
-                        dataType = DataTypeProvider::provideDataType(DataType::Type::VARSIZED);
-                    }
-                }
-                helpers.top().functionBuilder.emplace_back(ConstantValueLogicalFunction(dataType, std::move(constantValue)));
-            }
-
-            const auto total = helpers.top().functionBuilder.size();
-            PRECONDITION(total >= 4, "TGEO_AT_STBOX requires (lon, lat, timestamp, stbox) with optional border flag, but got {}", total);
-
-            auto stboxFunction = helpers.top().functionBuilder.back();
-            helpers.top().functionBuilder.pop_back();
-
-            LogicalFunction borderFlag = ConstantValueLogicalFunction(
-                DataTypeProvider::provideDataType(DataType::Type::BOOLEAN), "TRUE");
-            if (!helpers.top().functionBuilder.empty() && helpers.top().functionBuilder.back().getDataType().isType(DataType::Type::BOOLEAN))
-            {
-                borderFlag = helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-            }
-
-            auto timestampFunction = helpers.top().functionBuilder.back(); helpers.top().functionBuilder.pop_back();
-            auto latFunction = helpers.top().functionBuilder.back(); helpers.top().functionBuilder.pop_back();
-            auto lonFunction = helpers.top().functionBuilder.back(); helpers.top().functionBuilder.pop_back();
-
-            helpers.top().functionBuilder.emplace_back(
-                TemporalAtStBoxLogicalFunction(lonFunction, latFunction, timestampFunction, stboxFunction, borderFlag));
-        }
-        break;
-        
         default:
             /// Check if the function is a constructor for a datatype
             if (const auto dataType = DataTypeProvider::tryProvideDataType(funcName); dataType.has_value())
@@ -1279,27 +876,15 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                 auto constFunctionItem = ConstantValueLogicalFunction(*dataType, std::move(value));
                 helpers.top().functionBuilder.emplace_back(constFunctionItem);
             }
-            else if (funcName == "TEMPORAL_INTERSECTS")
+            else if (auto logicalFunction = LogicalFunctionProvider::tryProvide(funcName, helpers.top().functionBuilder))
             {
-                if (helpers.top().functionBuilder.size() != 3) {
-                    throw InvalidQuerySyntax("TEMPORAL_INTERSECTS requires exactly three arguments (lon, lat, timestamp), but got {}", helpers.top().functionBuilder.size());
-                }
-                const auto ts = helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                const auto lat = helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                const auto lon = helpers.top().functionBuilder.back();
-                helpers.top().functionBuilder.pop_back();
-                helpers.top().functionBuilder.emplace_back(TemporalIntersectsFunction(lon, lat, ts));
-            }
-
-            else if (auto logicalFunction = LogicalFunctionProvider::tryProvide(funcName, std::move(helpers.top().functionBuilder)))
-            {
+                /// Remove exactly the functions used to create the 'logicalFunction' from the back of the function builder
+                helpers.top().functionBuilder.resize(helpers.top().functionBuilder.size() - logicalFunction.value().getChildren().size());
                 helpers.top().functionBuilder.push_back(*logicalFunction);
             }
             else
             {
-                throw InvalidQuerySyntax("Unknown aggregation function: {}, resolved to token type: {}", funcName, tokenType);
+                throw InvalidQuerySyntax("Unknown (aggregation) function: {}, resolved to token type: {}", funcName, tokenType);
             }
     }
 }
@@ -1309,26 +894,38 @@ void AntlrSQLQueryPlanCreator::exitThresholdMinSizeParameter(AntlrSQLParser::Thr
     helpers.top().minimumCount = std::stoi(context->getText());
 }
 
+void AntlrSQLQueryPlanCreator::enterSetOperation(AntlrSQLParser::SetOperationContext*)
+{
+    AntlrSQLHelper helper;
+    helper.isSetOperation = true;
+    helpers.push(helper);
+}
+
 void AntlrSQLQueryPlanCreator::exitSetOperation(AntlrSQLParser::SetOperationContext* context)
 {
-    if (queryPlans.size() < 2)
+    INVARIANT(!helpers.empty(), "the set operation helper should not disappear before this function call");
+
+    auto& helperPlans = helpers.top().queryPlans;
+    if (helperPlans.size() < 2)
     {
         throw InvalidQuerySyntax("Union does not have sufficient amount of QueryPlans for unifying.");
     }
 
-    const auto rightQuery = queryPlans.top();
-    queryPlans.pop();
-    const auto leftQuery = queryPlans.top();
-    queryPlans.pop();
-    const auto queryPlan = LogicalPlanBuilder::addUnion(leftQuery, rightQuery);
+    auto rightQuery = std::move(helperPlans.back());
+    helperPlans.pop_back();
+    auto leftQuery = std::move(helperPlans.back());
+    helperPlans.pop_back();
+    helpers.pop();
+
+    auto queryPlan = LogicalPlanBuilder::addUnion(std::move(leftQuery), std::move(rightQuery));
     if (!helpers.empty())
     {
         /// we are in a subquery
-        helpers.top().queryPlans.push_back(queryPlan);
+        helpers.top().queryPlans.push_back(std::move(queryPlan));
     }
     else
     {
-        queryPlans.push(queryPlan);
+        queryPlans.push(std::move(queryPlan));
     }
     AntlrSQLBaseListener::exitSetOperation(context);
 }

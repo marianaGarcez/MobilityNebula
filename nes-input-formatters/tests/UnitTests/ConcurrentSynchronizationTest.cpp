@@ -26,15 +26,19 @@
 #include <gtest/gtest.h>
 #include <SequenceShredder.hpp>
 
-class StreamingMultiThreaderAutomatedSequenceShredderTest : public ::testing::Test
+/// Tests whether the SequenceShredder correctly finds spanning tuples given random orders of sequence numbers and random occurrences of
+/// tuple delimiters in the buffers that belong to the sequence numbers.
+/// Uses multiple threads that call the SequenceShredder to determine spanning tuples. Each thread randomly (seeded) determines whether its current
+/// request has a tuple delimiter or not, calls the 'processSequenceNumber' function of the SequenceShredder and tracks the resulting spanning tuples.
+/// We check whether the range of all produces sequence numbers matches the expected range.
+class StreamingMultiThreadedAutomatedSequenceShredderTest : public ::testing::Test
 {
-private:
-    using SequenceShredder = NES::InputFormatters::SequenceShredder;
+    using SequenceShredder = NES::SequenceShredder;
 
 public:
-    void SetUp() override { NES_INFO("Setting up StreamingMultiThreaderAutomatedSequenceShredderTest."); }
+    void SetUp() override { NES_INFO("Setting up StreamingMultiThreadedAutomatedSequenceShredderTest."); }
 
-    void TearDown() override { NES_INFO("Tear down StreamingMultiThreaderAutomatedSequenceShredderTest class."); }
+    void TearDown() override { NES_INFO("Tear down StreamingMultiThreadedAutomatedSequenceShredderTest class."); }
 
     template <size_t NUM_THREADS>
     class TestThreadPool
@@ -68,6 +72,7 @@ public:
                     { threadFunction(i, upperBound, sequenceNumberGen, boolDistribution); });
             }
         }
+
         /// Check if at least one thread is still active
         void waitForCompletion() const { completionLatch.wait(); }
 
@@ -116,19 +121,15 @@ public:
                 {
                 }
 
-                const auto dummyStagedBuffer = SequenceShredder::StagedBuffer{
-                    .buffer = NES::Memory::TupleBuffer{},
-                    .sizeOfBufferInBytes = threadLocalSequenceNumber,
-                    .offsetOfFirstTupleDelimiter = 0,
-                    .offsetOfLastTupleDelimiter = 0};
+                const auto dummyStagedBuffer = NES::StagedBuffer{NES::RawTupleBuffer{}, threadLocalSequenceNumber, 0, 0};
                 if (tupleDelimiter)
                 {
                     const auto stagedBuffers
                         = sequenceShredder.processSequenceNumber<true>(dummyStagedBuffer, threadLocalSequenceNumber).stagedBuffers;
                     if (stagedBuffers.size() > 1)
                     {
-                        const auto spanStart = stagedBuffers.front().sizeOfBufferInBytes;
-                        const auto spanEnd = stagedBuffers.back().sizeOfBufferInBytes;
+                        const auto spanStart = stagedBuffers.front().getSizeOfBufferInBytes();
+                        const auto spanEnd = stagedBuffers.back().getSizeOfBufferInBytes();
                         const auto localCheckSum = spanEnd - spanStart;
                         threadLocalCheckSum.at(threadIdx) += localCheckSum;
                     }
@@ -139,8 +140,8 @@ public:
                         = sequenceShredder.processSequenceNumber<false>(dummyStagedBuffer, threadLocalSequenceNumber).stagedBuffers;
                     if (stagedBuffers.size() > 1)
                     {
-                        const auto spanStart = stagedBuffers.front().sizeOfBufferInBytes;
-                        const auto spanEnd = stagedBuffers.back().sizeOfBufferInBytes;
+                        const auto spanStart = stagedBuffers.front().getSizeOfBufferInBytes();
+                        const auto spanEnd = stagedBuffers.back().getSizeOfBufferInBytes();
                         const auto localCheckSum = spanEnd - spanStart;
                         threadLocalCheckSum.at(threadIdx) += localCheckSum;
                     }
@@ -161,7 +162,7 @@ public:
     }
 };
 
-TEST_F(StreamingMultiThreaderAutomatedSequenceShredderTest, multiThreadedExhaustiveTest)
+TEST_F(StreamingMultiThreadedAutomatedSequenceShredderTest, multiThreadedExhaustiveTest)
 {
     constexpr size_t numIterations = 1;
     for (size_t iteration = 0; iteration < numIterations; ++iteration)

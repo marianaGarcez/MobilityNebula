@@ -22,4 +22,3 @@ add_plugin(Concat PhysicalFunction nes-physical-operators ConcatPhysicalFunction
 add_subdirectory(ArithmeticalFunctions)
 add_subdirectory(ComparisonFunctions)
 add_subdirectory(BooleanFunctions)
-add_subdirectory(Meos)

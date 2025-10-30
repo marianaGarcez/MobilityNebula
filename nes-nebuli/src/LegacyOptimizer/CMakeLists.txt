@@ -12,9 +12,11 @@
 
 add_source_files(nes-legacy-optimizer
         SourceInferencePhase.cpp
-        SequentialAggregationRule.cpp
         LogicalSourceExpansionRule.cpp
+        RedundantUnionRemovalRule.cpp
+        RedundantProjectionRemovalRule.cpp
         OriginIdInferencePhase.cpp
         TypeInferencePhase.cpp
-        ModelInferenceCompilationRule.cpp
+        SinkBindingRule.cpp
+        LegacyOptimizer.cpp
 )

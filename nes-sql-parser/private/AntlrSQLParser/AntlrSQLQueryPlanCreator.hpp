@@ -48,10 +48,6 @@ public:
     void exitFunctionCall(AntlrSQLParser::FunctionCallContext* context) override;
     void enterHavingClause(AntlrSQLParser::HavingClauseContext* context) override;
     void exitHavingClause(AntlrSQLParser::HavingClauseContext* context) override;
-    void enterInference(AntlrSQLParser::InferenceContext* context) override;
-    void exitInference(AntlrSQLParser::InferenceContext* context) override;
-    void enterInferModelInputFields(AntlrSQLParser::InferModelInputFieldsContext* context) override;
-    void exitInferModelInputFields(AntlrSQLParser::InferModelInputFieldsContext* context) override;
     void enterJoinRelation(AntlrSQLParser::JoinRelationContext* context) override;
     void exitJoinRelation(AntlrSQLParser::JoinRelationContext* context) override;
     void enterWindowClause(AntlrSQLParser::WindowClauseContext* context) override;
@@ -61,6 +57,8 @@ public:
     void enterJoinCriteria(AntlrSQLParser::JoinCriteriaContext* context) override;
     void enterJoinType(AntlrSQLParser::JoinTypeContext* context) override;
     void exitJoinType(AntlrSQLParser::JoinTypeContext* context) override;
+    void enterSetOperation(AntlrSQLParser::SetOperationContext* context) override;
+    void exitSetOperation(AntlrSQLParser::SetOperationContext* context) override;
 
     /// enter or exit functions (no pairs)
     void enterSinkClause(AntlrSQLParser::SinkClauseContext* context) override;
@@ -79,7 +77,6 @@ public:
     void exitLogicalNot(AntlrSQLParser::LogicalNotContext* context) override;
     void exitConstantDefault(AntlrSQLParser::ConstantDefaultContext* context) override;
     void exitThresholdMinSizeParameter(AntlrSQLParser::ThresholdMinSizeParameterContext* context) override;
-    void exitSetOperation(AntlrSQLParser::SetOperationContext* context) override;
 };
 
 }

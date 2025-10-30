@@ -12,17 +12,18 @@
     limitations under the License.
 */
 
+#include <LegacyOptimizer/SourceInferencePhase.hpp>
+
 #include <algorithm>
 #include <ranges>
 #include <utility>
 
 #include <DataTypes/Schema.hpp>
-#include <LegacyOptimizer/SourceInferencePhase.hpp>
 #include <Operators/Sources/SourceNameLogicalOperator.hpp>
 #include <Plans/LogicalPlan.hpp>
 #include <ErrorHandling.hpp>
 
-namespace NES::LegacyOptimizer
+namespace NES
 {
 
 void SourceInferencePhase::apply(LogicalPlan& queryPlan) const
@@ -36,15 +37,15 @@ void SourceInferencePhase::apply(LogicalPlan& queryPlan) const
         /// if the source descriptor has no schema set and is only a logical source we replace it with the correct
         /// source descriptor form the catalog.
         auto schema = Schema();
-        auto logicalSourceOpt = sourceCatalog->getLogicalSource(source.getLogicalSourceName());
+        auto logicalSourceOpt = sourceCatalog->getLogicalSource(source->getLogicalSourceName());
         if (not logicalSourceOpt.has_value())
         {
-            throw UnknownSource("Logical source not registered. Source Name: {}", source.getLogicalSourceName());
+            throw UnknownSourceName("Logical source not registered. Source Name: {}", source->getLogicalSourceName());
         }
         const auto& logicalSource = logicalSourceOpt.value();
         schema.appendFieldsFromOtherSchema(*logicalSource.getSchema());
         schema.memoryLayoutType = logicalSource.getSchema()->memoryLayoutType;
-        auto qualifierName = source.getLogicalSourceName() + Schema::ATTRIBUTE_NAME_SEPARATOR;
+        auto qualifierName = source->getLogicalSourceName() + Schema::ATTRIBUTE_NAME_SEPARATOR;
         /// perform attribute name resolution
         std::ranges::for_each(
             schema.getFields()
@@ -56,7 +57,7 @@ void SourceInferencePhase::apply(LogicalPlan& queryPlan) const
                     throw CannotInferSchema("Could not rename non-existing field: {}", field.name);
                 }
             });
-        auto result = replaceOperator(queryPlan, source, source.withSchema(schema));
+        auto result = replaceOperator(queryPlan, source.getId(), source->withSchema(schema));
         INVARIANT(result.has_value(), "replaceOperator failed");
         queryPlan = std::move(*result);
     }
