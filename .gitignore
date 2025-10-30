@@ -2,8 +2,6 @@
 .idea
 .settings
 .vscode
-.jj
-.cursor
 .csv
 .log
 .DS_Store
@@ -40,26 +38,7 @@ nes-asp/data/*.csv
 
 # Ignore log files
 *.log
-*.undo
 
 scripts/__pycache__
 
-# Ignore nix symlinks
-.nix/clang
-.nix/clang++
-.nix/cc
-.nix/c++
-.nix/ctest
-.nix/ninja
-.nix/gdb
-.venv/
-Data/
-Output/
-Results/
-Testing/
-build-host/
-build-local/
-run/
-  
-EngineStats_*.stats
-
+*.stats
