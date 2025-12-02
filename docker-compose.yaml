@@ -11,6 +11,12 @@ services:
     ports:
       - "8080:8080"
     restart: unless-stopped
+    healthcheck:
+    test: ["CMD-SHELL", "pgrep -f nes-single-node-worker > /dev/null || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 3
+    start_period: 30s
 
   query-registration:
     image: ${NES_RUNTIME_IMAGE:-marianamgarcez/mobility-nebula:runtime}
@@ -21,12 +27,13 @@ services:
       - -c
       - |
         set -euo pipefail
+        # check if nes-worker is reachable
         for i in {1..60}; do
-          if (echo > /dev/tcp/nes-worker/8080) >/dev/null 2>&1; then
+          if (true > /dev/tcp/nes-worker/8080) >/dev/null 2>&1; then
             break
           fi
           echo "Waiting for nes-worker to be reachable..."
           sleep 1
         done
-        nes-nebuli -d -s nes-worker:8080 -w register -x -i /workspace/Queries/Query1-csv.yaml
+        nes-nebuli -d -s nes-worker:8080 -w register -x -i /workspace/Queries/Query1-csv.yaml  
     restart: "no"

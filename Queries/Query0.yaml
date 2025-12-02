@@ -32,9 +32,7 @@ logical:
       - { name: T2_MBAR,    type: FLOAT64 }
       - { name: CODE1,      type: FLOAT64 }
       - { name: CODE2,      type: FLOAT64 }
-      - { name: GPS_SPEED,  type: FLOAT64 }
-      - { name: GPS_LAT,    type: FLOAT64 }
-      - { name: GPS_LON,    type: FLOAT64 }
+
 
 physical:
   - logical: SNCB_STREAM
