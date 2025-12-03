@@ -27,15 +27,6 @@
 // Include MEOS wrapper after standard headers
 #include <MEOSWrapper.hpp>
 
-extern "C" {
-    // Extended Kalman filter on temporal points provided by MEOS
-    Temporal* temporal_ext_kalman_filter(const Temporal* temp,
-                                         double gate,
-                                         double q,
-                                         double variance,
-                                         bool to_drop);
-}
-
 namespace MEOS {
 
     // Global MEOS initialization

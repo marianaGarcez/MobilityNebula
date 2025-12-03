@@ -10,23 +10,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-find_package(PahoMqttCpp CONFIG QUIET)
+add_plugin_as_library(MQTT Sink nes-sinks-registry mqtt_sink_plugin_library MQTTSink.cpp)
+add_plugin_as_library(MQTT SinkValidation nes-sinks-registry mqtt_sink_validation_plugin_library MQTTSink.cpp)
 
-if (NOT PahoMqttCpp_FOUND)
-    message(STATUS "PahoMqttCpp not found. MQTT Sink plugin will not be built.")
-else()
-    add_plugin_as_library(MQTT Sink nes-sinks-registry mqtt_sink_plugin_library MQTTSink.cpp)
-    add_plugin_as_library(MQTT SinkValidation nes-sinks-registry mqtt_sink_validation_plugin_library MQTTSink.cpp)
+target_include_directories(mqtt_sink_plugin_library
+        PUBLIC include
+        PRIVATE .
+)
+target_include_directories(mqtt_sink_validation_plugin_library
+        PUBLIC include
+        PRIVATE .
+)
 
-    target_include_directories(mqtt_sink_plugin_library
-            PUBLIC include
-            PRIVATE .
-    )
-    target_include_directories(mqtt_sink_validation_plugin_library
-            PUBLIC include
-            PRIVATE .
-    )
-
-    target_link_libraries(mqtt_sink_plugin_library PRIVATE PahoMqttCpp::paho-mqttpp3-static)
-    target_link_libraries(mqtt_sink_validation_plugin_library PRIVATE PahoMqttCpp::paho-mqttpp3-static)
-endif ()
+find_package(PahoMqttCpp CONFIG REQUIRED)
+target_link_libraries(mqtt_sink_plugin_library PRIVATE PahoMqttCpp::paho-mqttpp3-static)
+target_link_libraries(mqtt_sink_validation_plugin_library PRIVATE PahoMqttCpp::paho-mqttpp3-static)
