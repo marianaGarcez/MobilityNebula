@@ -68,6 +68,8 @@
 #include <Functions/Meos/TemporalIntersectsGeometryLogicalFunction.hpp>
 #include <Functions/Meos/TemporalAIntersectsGeometryLogicalFunction.hpp>
 #include <Functions/Meos/TemporalEDWithinGeometryLogicalFunction.hpp>
+#include <Operators/Windows/Aggregations/Meos/TemporalExtKalmanFilterAggregationLogicalFunction.hpp>
+#include <Functions/Meos/NearestApproachDistanceLogicalFunction.hpp>
 #include <Functions/Meos/TemporalAtStBoxLogicalFunction.hpp>
 #include <Plans/LogicalPlan.hpp>
 #include <Plans/LogicalPlanBuilder.hpp>
@@ -1224,6 +1226,65 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                 const auto lon = helpers.top().functionBuilder.back().get<FieldAccessLogicalFunction>();
                 helpers.top().functionBuilder.pop_back();
                 helpers.top().windowAggs.push_back(TemporalSequenceAggregationLogicalFunctionV2::create(lon, lat, ts));
+            }
+            else if (funcName == "TEMPORAL_EXT_KALMAN_FILTER")
+            {
+                auto& helper = helpers.top();
+
+                // Nested form:
+                //   TEMPORAL_EXT_KALMAN_FILTER(TEMPORAL_SEQUENCE(lon, lat, ts))
+                // In this case the inner TEMPORAL_SEQUENCE already added a
+                // TemporalSequenceAggregationLogicalFunctionV2 to windowAggs and
+                // pushed a single FieldAccess (lon) onto functionBuilder.
+                if (helper.functionBuilder.size() == 1 && !helper.windowAggs.empty())
+                {
+                    auto lastAgg = helper.windowAggs.back();
+                    auto tsAgg =
+                        std::dynamic_pointer_cast<TemporalSequenceAggregationLogicalFunctionV2>(lastAgg);
+                    if (!tsAgg)
+                    {
+                        throw InvalidQuerySyntax(
+                            "TEMPORAL_EXT_KALMAN_FILTER nested form requires TEMPORAL_SEQUENCE(...) "
+                            "as argument at {}",
+                            context->getText());
+                    }
+
+                    const auto lonField = tsAgg->getLonField();
+                    const auto latField = tsAgg->getLatField();
+                    const auto tsField  = tsAgg->getTimestampField();
+
+                    // Replace the inner TEMPORAL_SEQUENCE aggregation with the Kalman one
+                    helper.windowAggs.pop_back();
+                    helper.windowAggs.push_back(
+                        TemporalExtKalmanFilterAggregationLogicalFunction::create(
+                            lonField, latField, tsField));
+                    // functionBuilder already contains a FieldAccess for the underlying
+                    // field (lon), which is sufficient for alias handling in enterIdentifier.
+                }
+                else
+                {
+                    // Legacy 3-argument form:
+                    //   TEMPORAL_EXT_KALMAN_FILTER(lon, lat, ts)
+                    if (helper.functionBuilder.size() < 3)
+                    {
+                        throw InvalidQuerySyntax(
+                            "TEMPORAL_EXT_KALMAN_FILTER requires three arguments (lon, lat, timestamp) at {}",
+                            context->getText());
+                    }
+                    const auto ts =
+                        helper.functionBuilder.back().get<FieldAccessLogicalFunction>();
+                    helper.functionBuilder.pop_back();
+                    const auto lat =
+                        helper.functionBuilder.back().get<FieldAccessLogicalFunction>();
+                    helper.functionBuilder.pop_back();
+                    const auto lon =
+                        helper.functionBuilder.back().get<FieldAccessLogicalFunction>();
+                    helper.functionBuilder.pop_back();
+                    helper.windowAggs.push_back(
+                        TemporalExtKalmanFilterAggregationLogicalFunction::create(lon, lat, ts));
+                    // For aggregation alias handling, keep one field access in the function builder
+                    helper.functionBuilder.push_back(lon);
+                }
             }
             else if (auto logicalFunction = LogicalFunctionProvider::tryProvide(funcName, helpers.top().functionBuilder))
             {

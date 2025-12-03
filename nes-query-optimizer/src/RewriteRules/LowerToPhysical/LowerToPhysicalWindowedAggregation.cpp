@@ -56,6 +56,8 @@
 // Special-case lowering for TEMPORAL_SEQUENCE (multi-input) aggregation
 #include <Operators/Windows/Aggregations/Meos/TemporalSequenceAggregationLogicalFunctionV2.hpp>
 #include <Aggregation/Function/Meos/TemporalSequenceAggregationPhysicalFunction.hpp>
+#include <Aggregation/Function/Meos/TemporalExtKalmanFilterAggregationPhysicalFunction.hpp>
+#include <Operators/Windows/Aggregations/Meos/TemporalExtKalmanFilterAggregationLogicalFunction.hpp>
 
 namespace NES
 {
@@ -149,6 +151,38 @@ getAggregationPhysicalFunctions(const WindowedAggregationLogicalOperator& logica
             auto tupleBufferRef = Interface::BufferRef::TupleBufferRef::create(configuration.pageSize.getValue(), stateSchema);
 
             auto phys = std::make_shared<TemporalSequenceAggregationPhysicalFunction>(
+                std::move(physicalInputType),
+                std::move(physicalFinalType),
+                lonPF,
+                latPF,
+                tsPF,
+                resultFieldIdentifier,
+                tupleBufferRef);
+            aggregationPhysicalFunctions.push_back(std::move(phys));
+            continue;
+        }
+
+        // Custom lowering path for TEMPORAL_EXT_KALMAN_FILTER: also needs lon, lat, ts
+        if (name == std::string_view("TemporalExtKalmanFilter"))
+        {
+            auto kfDescriptor =
+                std::dynamic_pointer_cast<TemporalExtKalmanFilterAggregationLogicalFunction>(descriptor);
+            INVARIANT(kfDescriptor != nullptr,
+                      "Expected TemporalExtKalmanFilterAggregationLogicalFunction for TemporalExtKalmanFilter");
+
+            auto lonPF = QueryCompilation::FunctionProvider::lowerFunction(kfDescriptor->getLonField());
+            auto latPF = QueryCompilation::FunctionProvider::lowerFunction(kfDescriptor->getLatField());
+            auto tsPF  = QueryCompilation::FunctionProvider::lowerFunction(kfDescriptor->getTimestampField());
+
+            // State schema for aggregation state (PagedVector)
+            Schema stateSchema;
+            stateSchema.addField("lon", kfDescriptor->getLonField().getDataType());
+            stateSchema.addField("lat", kfDescriptor->getLatField().getDataType());
+            stateSchema.addField("timestamp", kfDescriptor->getTimestampField().getDataType());
+            auto tupleBufferRef =
+                Interface::BufferRef::TupleBufferRef::create(configuration.pageSize.getValue(), stateSchema);
+
+            auto phys = std::make_shared<TemporalExtKalmanFilterAggregationPhysicalFunction>(
                 std::move(physicalInputType),
                 std::move(physicalFinalType),
                 lonPF,

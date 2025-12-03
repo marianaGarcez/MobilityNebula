@@ -27,7 +27,14 @@
 // Include MEOS wrapper after standard headers
 #include <MEOSWrapper.hpp>
 
-
+extern "C" {
+    // Extended Kalman filter on temporal points provided by MEOS
+    Temporal* temporal_ext_kalman_filter(const Temporal* temp,
+                                         double gate,
+                                         double q,
+                                         double variance,
+                                         bool to_drop);
+}
 
 namespace MEOS {
 
@@ -402,6 +409,22 @@ namespace MEOS {
     {
         std::lock_guard<std::mutex> lk(meos_exec_mutex);
         return tgeo_at_stbox(temp, box, border_inc);
+    }
+
+    double Meos::safe_nad_tgeo_tgeo(const Temporal* temp1, const Temporal* temp2)
+    {
+        std::lock_guard<std::mutex> lk(meos_exec_mutex);
+        return nad_tgeo_tgeo(temp1, temp2);
+    }
+
+    Temporal* Meos::safe_temporal_ext_kalman_filter(const Temporal* temp,
+                                                    double gate,
+                                                    double q,
+                                                    double variance,
+                                                    bool to_drop)
+    {
+        std::lock_guard<std::mutex> lk(meos_exec_mutex);
+        return temporal_ext_kalman_filter(temp, gate, q, variance, to_drop);
     }
 
     // SpatioTemporalBox implementation

@@ -193,6 +193,12 @@ class Meos {
     static int safe_edwithin_tgeo_geo(const Temporal* temp, const GSERIALIZED* gs, double dist);
     static int safe_eintersects_tgeo_geo(const Temporal* temp, const GSERIALIZED* gs);
     static Temporal* safe_tgeo_at_stbox(const Temporal* temp, const STBox* box, bool border_inc);
+    static double safe_nad_tgeo_tgeo(const Temporal* temp1, const Temporal* temp2);
+    static Temporal* safe_temporal_ext_kalman_filter(const Temporal* temp,
+                                                     double gate,
+                                                     double q,
+                                                     double variance,
+                                                     bool to_drop);
     
     /**
      * @brief Parse a temporal point string into a MEOS Temporal object

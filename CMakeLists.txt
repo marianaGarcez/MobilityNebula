@@ -174,6 +174,8 @@ set(protobuf_MODULE_COMPATIBLE TRUE)
 find_package(Protobuf REQUIRED)
 message(STATUS "Using protobuf ${protobuf_VERSION}")
 
+find_package(OpenSSL REQUIRED)
+
 set(_PROTOBUF_LIBPROTOBUF protobuf::libprotobuf)
 if (CMAKE_CROSSCOMPILING)
     find_program(_PROTOBUF_PROTOC protoc)

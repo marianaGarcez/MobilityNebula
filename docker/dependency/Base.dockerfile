@@ -70,7 +70,7 @@ RUN apt update -y && apt install -y \
     libxml2-dev
 
 # Build MobilityDB with MEOS enabled using GCC
-RUN git clone https://github.com/MobilityDB/MobilityDB.git -b master /usr/local/src/MobilityDB \
+RUN git clone https://github.com/marianaGarcez/MobilityDB -b master /usr/local/src/MobilityDB \
     && mkdir -p /usr/local/src/MobilityDB/build \
     && cd /usr/local/src/MobilityDB/build \
     && cmake -DMEOS=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ .. \
