@@ -22,6 +22,7 @@
 #include <Functions/FieldAccessLogicalFunction.hpp>
 #include <Functions/LogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/WindowAggregationLogicalFunction.hpp>
+#include <Operators/Windows/Aggregations/Meos/TemporalExtKalmanFilterAggregationLogicalFunction.hpp>
 #include <Serialization/DataTypeSerializationUtil.hpp>
 #include <AggregationLogicalFunctionRegistry.hpp>
 #include <ErrorHandling.hpp>
@@ -79,18 +80,13 @@ deserializeWindowAggregationFunction(const SerializableAggregationFunction& seri
         throw UnknownLogicalOperator();
     }
 
-    // Special handling for TemporalExtKalmanFilter: lat/ts stored in on_field.config
+    // Special handling for TemporalExtKalmanFilter: lat/ts and parameters stored in on_field.config
     if (type == std::string("TemporalExtKalmanFilter"))
     {
-        AggregationLogicalFunctionRegistryArguments args;
-
-        // on_field: lon
+        // on_field: lon (with extra config)
         const auto lonFn = deserializeFunction(serializedFunction.on_field());
-        if (auto lon = lonFn.tryGet<FieldAccessLogicalFunction>())
-        {
-            args.fields.push_back(*lon);
-        }
-        else
+        const auto lon = lonFn.tryGet<FieldAccessLogicalFunction>();
+        if (!lon)
         {
             throw CannotDeserialize("TemporalExtKalmanFilter: on_field is not FieldAccessLogicalFunction");
         }
@@ -116,41 +112,91 @@ deserializeWindowAggregationFunction(const SerializableAggregationFunction& seri
         }
 
         const auto latFn = deserializeFunction(list.functions(0));
-        if (auto lat = latFn.tryGet<FieldAccessLogicalFunction>())
-        {
-            args.fields.push_back(*lat);
-        }
-        else
+        const auto lat = latFn.tryGet<FieldAccessLogicalFunction>();
+        if (!lat)
         {
             throw CannotDeserialize("TemporalExtKalmanFilter: latitude extra_field is not FieldAccessLogicalFunction");
         }
 
         const auto tsFn = deserializeFunction(list.functions(1));
-        if (auto ts = tsFn.tryGet<FieldAccessLogicalFunction>())
-        {
-            args.fields.push_back(*ts);
-        }
-        else
+        const auto ts = tsFn.tryGet<FieldAccessLogicalFunction>();
+        if (!ts)
         {
             throw CannotDeserialize("TemporalExtKalmanFilter: timestamp extra_field is not FieldAccessLogicalFunction");
         }
 
+        // Kalman filter parameters: gate, q, variance, to_drop (all optional, defaulted)
+        double gate = 3.0;
+        double q = 0.01;
+        double variance = 1.0;
+        bool toDrop = false;
+
+        const auto gateKey = std::string("TemporalExtKalmanFilter.gate");
+        if (onFieldCfg.contains(gateKey))
+        {
+            const auto gateVariant = protoToDescriptorConfigType(onFieldCfg.at(gateKey));
+            if (std::holds_alternative<double>(gateVariant))
+            {
+                gate = std::get<double>(gateVariant);
+            }
+            else
+            {
+                throw CannotDeserialize("TemporalExtKalmanFilter: gate parameter is not a double");
+            }
+        }
+
+        const auto qKey = std::string("TemporalExtKalmanFilter.q");
+        if (onFieldCfg.contains(qKey))
+        {
+            const auto qVariant = protoToDescriptorConfigType(onFieldCfg.at(qKey));
+            if (std::holds_alternative<double>(qVariant))
+            {
+                q = std::get<double>(qVariant);
+            }
+            else
+            {
+                throw CannotDeserialize("TemporalExtKalmanFilter: q parameter is not a double");
+            }
+        }
+
+        const auto varianceKey = std::string("TemporalExtKalmanFilter.variance");
+        if (onFieldCfg.contains(varianceKey))
+        {
+            const auto varianceVariant = protoToDescriptorConfigType(onFieldCfg.at(varianceKey));
+            if (std::holds_alternative<double>(varianceVariant))
+            {
+                variance = std::get<double>(varianceVariant);
+            }
+            else
+            {
+                throw CannotDeserialize("TemporalExtKalmanFilter: variance parameter is not a double");
+            }
+        }
+
+        const auto toDropKey = std::string("TemporalExtKalmanFilter.to_drop");
+        if (onFieldCfg.contains(toDropKey))
+        {
+            const auto toDropVariant = protoToDescriptorConfigType(onFieldCfg.at(toDropKey));
+            if (std::holds_alternative<bool>(toDropVariant))
+            {
+                toDrop = std::get<bool>(toDropVariant);
+            }
+            else
+            {
+                throw CannotDeserialize("TemporalExtKalmanFilter: to_drop parameter is not a bool");
+            }
+        }
+
         // as_field: alias
         const auto asFn = deserializeFunction(serializedFunction.as_field());
-        if (auto as = asFn.tryGet<FieldAccessLogicalFunction>())
-        {
-            args.fields.push_back(*as);
-        }
-        else
+        const auto as = asFn.tryGet<FieldAccessLogicalFunction>();
+        if (!as)
         {
             throw CannotDeserialize("TemporalExtKalmanFilter: as_field is not FieldAccessLogicalFunction");
         }
 
-        if (auto function = AggregationLogicalFunctionRegistry::instance().create(type, args))
-        {
-            return function.value();
-        }
-        throw UnknownLogicalOperator();
+        return std::make_shared<TemporalExtKalmanFilterAggregationLogicalFunction>(
+            *lon, *lat, *ts, *as, gate, q, variance, toDrop);
     }
 
     auto onField = deserializeFunction(serializedFunction.on_field());

@@ -37,6 +37,10 @@ public:
         PhysicalFunction lonFunctionParam,
         PhysicalFunction latFunctionParam,
         PhysicalFunction timestampFunctionParam,
+        double gate,
+        double q,
+        double variance,
+        bool toDrop,
         Nautilus::Record::RecordFieldIdentifier resultFieldIdentifier,
         std::shared_ptr<Nautilus::Interface::BufferRef::TupleBufferRef> bufferRef);
 
@@ -65,6 +69,10 @@ private:
     PhysicalFunction lonFunction;
     PhysicalFunction latFunction;
     PhysicalFunction timestampFunction;
+    double gate;
+    double q;
+    double variance;
+    bool toDrop;
 };
 
 } // namespace NES

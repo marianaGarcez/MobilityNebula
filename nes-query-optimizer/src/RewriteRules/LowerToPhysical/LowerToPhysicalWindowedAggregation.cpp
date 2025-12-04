@@ -162,7 +162,7 @@ getAggregationPhysicalFunctions(const WindowedAggregationLogicalOperator& logica
             continue;
         }
 
-        // Custom lowering path for TEMPORAL_EXT_KALMAN_FILTER: also needs lon, lat, ts
+        // Custom lowering path for TEMPORAL_EXT_KALMAN_FILTER: also needs lon, lat, ts and filter parameters
         if (name == std::string_view("TemporalExtKalmanFilter"))
         {
             auto kfDescriptor =
@@ -188,6 +188,10 @@ getAggregationPhysicalFunctions(const WindowedAggregationLogicalOperator& logica
                 lonPF,
                 latPF,
                 tsPF,
+                kfDescriptor->getGate(),
+                kfDescriptor->getQ(),
+                kfDescriptor->getVariance(),
+                kfDescriptor->getToDrop(),
                 resultFieldIdentifier,
                 tupleBufferRef);
             aggregationPhysicalFunctions.push_back(std::move(phys));

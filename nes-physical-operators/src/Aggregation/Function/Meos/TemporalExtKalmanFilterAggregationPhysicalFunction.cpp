@@ -50,6 +50,10 @@ TemporalExtKalmanFilterAggregationPhysicalFunction::TemporalExtKalmanFilterAggre
     PhysicalFunction lonFunctionParam,
     PhysicalFunction latFunctionParam,
     PhysicalFunction timestampFunctionParam,
+    double gate,
+    double q,
+    double variance,
+    bool toDrop,
     Nautilus::Record::RecordFieldIdentifier resultFieldIdentifier,
     std::shared_ptr<Nautilus::Interface::BufferRef::TupleBufferRef> bufferRef)
     : AggregationPhysicalFunction(std::move(inputType),
@@ -59,7 +63,11 @@ TemporalExtKalmanFilterAggregationPhysicalFunction::TemporalExtKalmanFilterAggre
     , bufferRef(std::move(bufferRef))
     , lonFunction(std::move(lonFunctionParam))
     , latFunction(std::move(latFunctionParam))
-    , timestampFunction(std::move(timestampFunctionParam)) {}
+    , timestampFunction(std::move(timestampFunctionParam))
+    , gate(gate)
+    , q(q)
+    , variance(variance)
+    , toDrop(toDrop) {}
 
 void TemporalExtKalmanFilterAggregationPhysicalFunction::lift(
     const nautilus::val<AggregationState*>& aggregationState,
@@ -210,7 +218,11 @@ Nautilus::Record TemporalExtKalmanFilterAggregationPhysicalFunction::lower(
         pointCounter);
 
     auto binarySize = nautilus::invoke(
-        +[](const char* trajStr) -> size_t {
+        +[](const char* trajStr,
+            double gateParam,
+            double qParam,
+            double varianceParam,
+            bool toDropParam) -> size_t {
             if (!trajStr || std::strlen(trajStr) == 0) {
                 return 0;
             }
@@ -236,13 +248,13 @@ Nautilus::Record TemporalExtKalmanFilterAggregationPhysicalFunction::lower(
             }
 
             // Apply MEOS-side extended Kalman filter with default parameters
-            // gate = 3.0, q = 0.01, variance = 1.0, to_drop = false
+            // Parameters are provided by the logical configuration
             Temporal* filtered = MEOS::Meos::safe_temporal_ext_kalman_filter(
                 static_cast<const Temporal*>(rawTemp),
-                3.0,
-                0.01,
-                1.0,
-                false);
+                gateParam,
+                qParam,
+                varianceParam,
+                toDropParam);
             if (!filtered) {
                 MEOS::Meos::freeTemporalObject(rawTemp);
                 return 0;
@@ -273,7 +285,11 @@ Nautilus::Record TemporalExtKalmanFilterAggregationPhysicalFunction::lower(
             MEOS::Meos::freeTemporalObject(rawTemp);
             return size;
         },
-        trajectoryStr);
+        trajectoryStr,
+        nautilus::val<double>(gate),
+        nautilus::val<double>(q),
+        nautilus::val<double>(variance),
+        nautilus::val<bool>(toDrop));
 
     if (binarySize == nautilus::val<size_t>(0)) {
         auto emptyVariableSized = pipelineMemoryProvider.arena.allocateVariableSizedData(0);

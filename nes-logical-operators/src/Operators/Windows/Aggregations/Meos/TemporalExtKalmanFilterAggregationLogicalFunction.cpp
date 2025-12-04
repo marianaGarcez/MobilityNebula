@@ -33,7 +33,11 @@ TemporalExtKalmanFilterAggregationLogicalFunction::TemporalExtKalmanFilterAggreg
     const FieldAccessLogicalFunction& lon,
     const FieldAccessLogicalFunction& lat,
     const FieldAccessLogicalFunction& ts,
-    const FieldAccessLogicalFunction& asField)
+    const FieldAccessLogicalFunction& asField,
+    double gate,
+    double q,
+    double variance,
+    bool toDrop)
     : WindowAggregationLogicalFunction(
           lon.getDataType(),
           DataTypeProvider::provideDataType(partialAggregateStampType),
@@ -42,16 +46,25 @@ TemporalExtKalmanFilterAggregationLogicalFunction::TemporalExtKalmanFilterAggreg
           asField)
     , lonField(lon)
     , latField(lat)
-    , timestampField(ts) {
+    , timestampField(ts)
+    , gate(gate)
+    , q(q)
+    , variance(variance)
+    , toDrop(toDrop) {
 }
 
 std::shared_ptr<WindowAggregationLogicalFunction>
 TemporalExtKalmanFilterAggregationLogicalFunction::create(
     const FieldAccessLogicalFunction& lon,
     const FieldAccessLogicalFunction& lat,
-    const FieldAccessLogicalFunction& ts) {
+    const FieldAccessLogicalFunction& ts,
+    double gate,
+    double q,
+    double variance,
+    bool toDrop) {
     // Default alias will be adjusted in inferStamp
-    return std::make_shared<TemporalExtKalmanFilterAggregationLogicalFunction>(lon, lat, ts, lon);
+    return std::make_shared<TemporalExtKalmanFilterAggregationLogicalFunction>(
+        lon, lat, ts, lon, gate, q, variance, toDrop);
 }
 
 std::string_view TemporalExtKalmanFilterAggregationLogicalFunction::getName() const noexcept {
@@ -107,8 +120,18 @@ TemporalExtKalmanFilterAggregationLogicalFunction::serialize() const {
     *extraList.add_functions() = LogicalFunction(latField).serialize();
     *extraList.add_functions() = LogicalFunction(timestampField).serialize();
 
-    const auto key = std::string("TemporalExtKalmanFilter.extra_fields");
-    (*lonProto.mutable_config())[key] = descriptorConfigTypeToProto(extraList);
+    const auto extraKey = std::string("TemporalExtKalmanFilter.extra_fields");
+    (*lonProto.mutable_config())[extraKey] = descriptorConfigTypeToProto(extraList);
+
+    // Store Kalman filter parameters alongside the extra fields
+    (*lonProto.mutable_config())[std::string("TemporalExtKalmanFilter.gate")]
+        = descriptorConfigTypeToProto(gate);
+    (*lonProto.mutable_config())[std::string("TemporalExtKalmanFilter.q")]
+        = descriptorConfigTypeToProto(q);
+    (*lonProto.mutable_config())[std::string("TemporalExtKalmanFilter.variance")]
+        = descriptorConfigTypeToProto(variance);
+    (*lonProto.mutable_config())[std::string("TemporalExtKalmanFilter.to_drop")]
+        = descriptorConfigTypeToProto(toDrop);
     saf.mutable_on_field()->CopyFrom(lonProto);
 
     // as_field: alias
@@ -125,7 +148,14 @@ AggregationLogicalFunctionGeneratedRegistrar::RegisterTemporalExtKalmanFilterAgg
     AggregationLogicalFunctionRegistryArguments arguments) {
     if (arguments.fields.size() == 4) {
         auto ptr = std::make_shared<TemporalExtKalmanFilterAggregationLogicalFunction>(
-            arguments.fields[0], arguments.fields[1], arguments.fields[2], arguments.fields[3]);
+            arguments.fields[0],
+            arguments.fields[1],
+            arguments.fields[2],
+            arguments.fields[3],
+            3.0,
+            0.01,
+            1.0,
+            false);
         return ptr;
     }
     throw CannotDeserialize(

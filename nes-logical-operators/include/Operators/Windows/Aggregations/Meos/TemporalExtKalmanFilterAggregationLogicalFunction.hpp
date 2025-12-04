@@ -24,20 +24,33 @@ namespace NES {
  *        before producing a VARSIZED trajectory representation.
  *
  * Signature in SQL:
- *   TEMPORAL_EXT_KALMAN_FILTER(lon, lat, ts) AS trajectory
+ *   TEMPORAL_EXT_KALMAN_FILTER(lon, lat, ts [, gate, q, variance, to_drop]) AS trajectory
+ *   TEMPORAL_EXT_KALMAN_FILTER(TEMPORAL_SEQUENCE(lon, lat, ts)
+ *                              [, gate, q, variance, to_drop]) AS trajectory
+ *
+ * where `gate`, `q`, and `variance` are floating-point constants and `to_drop`
+ * is a boolean constant controlling outlier removal.
  */
 class TemporalExtKalmanFilterAggregationLogicalFunction : public WindowAggregationLogicalFunction {
 public:
     static std::shared_ptr<WindowAggregationLogicalFunction>
     create(const FieldAccessLogicalFunction& lonField,
            const FieldAccessLogicalFunction& latField,
-           const FieldAccessLogicalFunction& timestampField);
+           const FieldAccessLogicalFunction& timestampField,
+           double gate = 3.0,
+           double q = 0.01,
+           double variance = 1.0,
+           bool toDrop = false);
 
     TemporalExtKalmanFilterAggregationLogicalFunction(
         const FieldAccessLogicalFunction& lonField,
         const FieldAccessLogicalFunction& latField,
         const FieldAccessLogicalFunction& timestampField,
-        const FieldAccessLogicalFunction& asField);
+        const FieldAccessLogicalFunction& asField,
+        double gate,
+        double q,
+        double variance,
+        bool toDrop);
 
     void inferStamp(const Schema& schema) override;
     ~TemporalExtKalmanFilterAggregationLogicalFunction() override = default;
@@ -50,6 +63,10 @@ public:
     [[nodiscard]] const FieldAccessLogicalFunction& getLonField() const noexcept { return lonField; }
     [[nodiscard]] const FieldAccessLogicalFunction& getLatField() const noexcept { return latField; }
     [[nodiscard]] const FieldAccessLogicalFunction& getTimestampField() const noexcept { return timestampField; }
+    [[nodiscard]] double getGate() const noexcept { return gate; }
+    [[nodiscard]] double getQ() const noexcept { return q; }
+    [[nodiscard]] double getVariance() const noexcept { return variance; }
+    [[nodiscard]] bool getToDrop() const noexcept { return toDrop; }
 
 private:
     static constexpr std::string_view NAME = "TemporalExtKalmanFilter";
@@ -59,7 +76,10 @@ private:
     FieldAccessLogicalFunction lonField;
     FieldAccessLogicalFunction latField;
     FieldAccessLogicalFunction timestampField;
+    double gate;
+    double q;
+    double variance;
+    bool toDrop;
 };
 
 } // namespace NES
-

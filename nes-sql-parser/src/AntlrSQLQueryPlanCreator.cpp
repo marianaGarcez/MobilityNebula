@@ -1231,6 +1231,60 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
             {
                 auto& helper = helpers.top();
 
+                // Optional Kalman parameters: gate, q, variance, to_drop
+                double gate = 3.0;
+                double q = 0.01;
+                double variance = 1.0;
+                bool toDrop = false;
+
+                if (!helper.constantBuilder.empty())
+                {
+                    const auto paramCount = helper.constantBuilder.size();
+                    if (paramCount != 4)
+                    {
+                        throw InvalidQuerySyntax(
+                            "TEMPORAL_EXT_KALMAN_FILTER expects either 0 or 4 additional constant parameters "
+                            "(gate, q, variance, to_drop) at {}",
+                            context->getText());
+                    }
+
+                    const auto gateStr = helper.constantBuilder[0];
+                    const auto qStr = helper.constantBuilder[1];
+                    const auto varianceStr = helper.constantBuilder[2];
+                    const auto toDropStr = helper.constantBuilder[3];
+
+                    try
+                    {
+                        gate = std::stod(gateStr);
+                        q = std::stod(qStr);
+                        variance = std::stod(varianceStr);
+                    }
+                    catch (const std::exception&)
+                    {
+                        throw InvalidQuerySyntax(
+                            "TEMPORAL_EXT_KALMAN_FILTER gate, q, and variance must be numeric constants at {}",
+                            context->getText());
+                    }
+
+                    const auto upperToDrop = Util::toUpperCase(toDropStr);
+                    if (upperToDrop == "TRUE")
+                    {
+                        toDrop = true;
+                    }
+                    else if (upperToDrop == "FALSE")
+                    {
+                        toDrop = false;
+                    }
+                    else
+                    {
+                        throw InvalidQuerySyntax(
+                            "TEMPORAL_EXT_KALMAN_FILTER to_drop parameter must be TRUE or FALSE at {}",
+                            context->getText());
+                    }
+
+                    helper.constantBuilder.clear();
+                }
+
                 // Nested form:
                 //   TEMPORAL_EXT_KALMAN_FILTER(TEMPORAL_SEQUENCE(lon, lat, ts))
                 // In this case the inner TEMPORAL_SEQUENCE already added a
@@ -1257,7 +1311,7 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                     helper.windowAggs.pop_back();
                     helper.windowAggs.push_back(
                         TemporalExtKalmanFilterAggregationLogicalFunction::create(
-                            lonField, latField, tsField));
+                            lonField, latField, tsField, gate, q, variance, toDrop));
                     // functionBuilder already contains a FieldAccess for the underlying
                     // field (lon), which is sufficient for alias handling in enterIdentifier.
                 }
@@ -1281,7 +1335,8 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                         helper.functionBuilder.back().get<FieldAccessLogicalFunction>();
                     helper.functionBuilder.pop_back();
                     helper.windowAggs.push_back(
-                        TemporalExtKalmanFilterAggregationLogicalFunction::create(lon, lat, ts));
+                        TemporalExtKalmanFilterAggregationLogicalFunction::create(
+                            lon, lat, ts, gate, q, variance, toDrop));
                     // For aggregation alias handling, keep one field access in the function builder
                     helper.functionBuilder.push_back(lon);
                 }
