@@ -25,9 +25,9 @@ query: |
   )
   ON (device_id < device_id2)
   WINDOW TUMBLING (time_utc, SIZE 10 SEC)
+  INTO file_sink
   ORDER BY mindist
-  LIMIT 10
-  INTO file_sink;
+  LIMIT 10;
 
 sinks:
   - name: FILE_SINK

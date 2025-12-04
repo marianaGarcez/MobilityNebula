@@ -367,6 +367,12 @@ void AntlrSQLQueryPlanCreator::exitArithmeticUnary(AntlrSQLParser::ArithmeticUna
 
 void AntlrSQLQueryPlanCreator::enterUnquotedIdentifier(AntlrSQLParser::UnquotedIdentifierContext* context)
 {
+    if (helpers.empty())
+    {
+        AntlrSQLBaseListener::enterUnquotedIdentifier(context);
+        return;
+    }
+
     /// Get Index of Parent Rule to check type of parent rule in conditions
     const auto parentContext = dynamic_cast<antlr4::ParserRuleContext*>(context->parent);
     const bool isParentRuleTableAlias = (parentContext != nullptr) && parentContext->getRuleIndex() == AntlrSQLParser::RuleTableAlias;
@@ -383,6 +389,12 @@ void AntlrSQLQueryPlanCreator::enterUnquotedIdentifier(AntlrSQLParser::UnquotedI
 
 void AntlrSQLQueryPlanCreator::enterIdentifier(AntlrSQLParser::IdentifierContext* context)
 {
+    if (helpers.empty())
+    {
+        AntlrSQLBaseListener::enterIdentifier(context);
+        return;
+    }
+
     /// Get Index of Parent Rule to check type of parent rule in conditions
     std::optional<size_t> parentRuleIndex;
     if (const auto* const parentContext = dynamic_cast<antlr4::ParserRuleContext*>(context->parent); parentContext != nullptr)
