@@ -125,8 +125,8 @@ relation
     ;
 
 joinRelation
-    : (joinType) JOIN right=relationPrimary joinCriteria? windowClause
-    | NATURAL joinType JOIN right=relationPrimary windowClause
+    : (joinType) JOIN right=relationPrimary joinCriteria? windowClause?
+    | NATURAL joinType JOIN right=relationPrimary windowClause?
     ;
 
 joinType

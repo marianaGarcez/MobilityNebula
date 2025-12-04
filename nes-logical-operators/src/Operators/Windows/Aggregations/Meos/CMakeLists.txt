@@ -13,3 +13,4 @@
 add_plugin(Var AggregationLogicalFunction nes-logical-operators VarAggregationLogicalFunction.cpp)
 add_plugin(TemporalSequence AggregationLogicalFunction nes-logical-operators TemporalSequenceAggregationLogicalFunctionV2.cpp)
 add_plugin(TemporalExtKalmanFilter AggregationLogicalFunction nes-logical-operators TemporalExtKalmanFilterAggregationLogicalFunction.cpp)
+add_plugin(KnnAgg AggregationLogicalFunction nes-logical-operators KnnAggregationLogicalFunction.cpp)

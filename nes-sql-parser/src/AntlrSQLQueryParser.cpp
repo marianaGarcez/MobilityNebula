@@ -50,8 +50,9 @@ public:
     void syntaxError(
         antlr4::Recognizer*, antlr4::Token*, size_t line, size_t charPositionInLine, const std::string& msg, std::exception_ptr) override
     {
-        throw InvalidQuerySyntax(
-            "Antlr exception during parsing: {} in {}", fmt::format("line {}:{} {}", line, charPositionInLine, msg), query);
+        auto formatted = fmt::format("line {}:{} {}", line, charPositionInLine, msg);
+        NES_ERROR("ANTLR syntax error while parsing query: {} | {}", formatted, query);
+        throw InvalidQuerySyntax("Antlr exception during parsing: {} in {}", formatted, query);
     }
 
 private:

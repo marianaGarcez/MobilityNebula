@@ -57,7 +57,9 @@
 #include <Operators/Windows/Aggregations/Meos/TemporalSequenceAggregationLogicalFunctionV2.hpp>
 #include <Aggregation/Function/Meos/TemporalSequenceAggregationPhysicalFunction.hpp>
 #include <Aggregation/Function/Meos/TemporalExtKalmanFilterAggregationPhysicalFunction.hpp>
+#include <Aggregation/Function/Meos/KnnAggregationPhysicalFunction.hpp>
 #include <Operators/Windows/Aggregations/Meos/TemporalExtKalmanFilterAggregationLogicalFunction.hpp>
+#include <Operators/Windows/Aggregations/Meos/KnnAggregationLogicalFunction.hpp>
 
 namespace NES
 {
@@ -194,6 +196,28 @@ getAggregationPhysicalFunctions(const WindowedAggregationLogicalOperator& logica
                 kfDescriptor->getToDrop(),
                 resultFieldIdentifier,
                 tupleBufferRef);
+            aggregationPhysicalFunctions.push_back(std::move(phys));
+            continue;
+        }
+
+        // Custom lowering path for KNN_AGG (KnnAgg): needs distance and neighbour field as physical functions
+        if (name == std::string_view("KnnAgg"))
+        {
+            auto knnDescriptor = std::dynamic_pointer_cast<KnnAggregationLogicalFunction>(descriptor);
+            INVARIANT(
+                knnDescriptor != nullptr,
+                "Expected KnnAggregationLogicalFunction for KnnAgg");
+
+            auto distancePF = QueryCompilation::FunctionProvider::lowerFunction(knnDescriptor->getDistanceField());
+            auto neighbourPF = QueryCompilation::FunctionProvider::lowerFunction(knnDescriptor->getNeighbourField());
+
+            auto phys = std::make_shared<KnnAggregationPhysicalFunction>(
+                std::move(physicalInputType),
+                std::move(physicalFinalType),
+                distancePF,
+                neighbourPF,
+                static_cast<std::uint64_t>(knnDescriptor->getK()),
+                resultFieldIdentifier);
             aggregationPhysicalFunctions.push_back(std::move(phys));
             continue;
         }

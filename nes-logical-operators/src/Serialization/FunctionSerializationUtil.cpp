@@ -23,6 +23,7 @@
 #include <Functions/LogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/WindowAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/Meos/TemporalExtKalmanFilterAggregationLogicalFunction.hpp>
+#include <Operators/Windows/Aggregations/Meos/KnnAggregationLogicalFunction.hpp>
 #include <Serialization/DataTypeSerializationUtil.hpp>
 #include <AggregationLogicalFunctionRegistry.hpp>
 #include <ErrorHandling.hpp>
@@ -197,6 +198,68 @@ deserializeWindowAggregationFunction(const SerializableAggregationFunction& seri
 
         return std::make_shared<TemporalExtKalmanFilterAggregationLogicalFunction>(
             *lon, *lat, *ts, *as, gate, q, variance, toDrop);
+    }
+
+    // Special handling for KNN_AGG (KnnAgg): distance field in on_field, neighbour + k in on_field.config
+    if (type == std::string("KnnAgg"))
+    {
+        const auto distanceFn = deserializeFunction(serializedFunction.on_field());
+        const auto distanceField = distanceFn.tryGet<FieldAccessLogicalFunction>();
+        if (!distanceField)
+        {
+            throw CannotDeserialize("KnnAgg: on_field is not FieldAccessLogicalFunction");
+        }
+
+        const auto& onFieldCfg = serializedFunction.on_field().config();
+        const auto neighbourKey = std::string("KnnAgg.neighbour_field");
+        if (!onFieldCfg.contains(neighbourKey))
+        {
+            throw CannotDeserialize("KnnAgg: missing neighbour_field config entry");
+        }
+
+        const auto neighbourVariant = protoToDescriptorConfigType(onFieldCfg.at(neighbourKey));
+        if (!std::holds_alternative<FunctionList>(neighbourVariant))
+        {
+            throw CannotDeserialize("KnnAgg: neighbour_field config is not a FunctionList");
+        }
+
+        const auto neighbourList = std::get<FunctionList>(neighbourVariant);
+        if (neighbourList.functions_size() < 1)
+        {
+            throw CannotDeserialize("KnnAgg: expected one neighbour function in neighbour_field");
+        }
+
+        const auto neighbourFn = deserializeFunction(neighbourList.functions(0));
+        const auto neighbourField = neighbourFn.tryGet<FieldAccessLogicalFunction>();
+        if (!neighbourField)
+        {
+            throw CannotDeserialize("KnnAgg: neighbour_field is not FieldAccessLogicalFunction");
+        }
+
+        std::size_t kValue = 10;
+        const auto kKey = std::string("KnnAgg.k");
+        if (onFieldCfg.contains(kKey))
+        {
+            const auto kVariant = protoToDescriptorConfigType(onFieldCfg.at(kKey));
+            if (std::holds_alternative<std::uint64_t>(kVariant))
+            {
+                kValue = static_cast<std::size_t>(std::get<std::uint64_t>(kVariant));
+            }
+            else
+            {
+                throw CannotDeserialize("KnnAgg: k parameter is not a uint64_t");
+            }
+        }
+
+        const auto asFn = deserializeFunction(serializedFunction.as_field());
+        const auto asField = asFn.tryGet<FieldAccessLogicalFunction>();
+        if (!asField)
+        {
+            throw CannotDeserialize("KnnAgg: as_field is not FieldAccessLogicalFunction");
+        }
+
+        return std::make_shared<KnnAggregationLogicalFunction>(
+            *distanceField, *neighbourField, *asField, kValue);
     }
 
     auto onField = deserializeFunction(serializedFunction.on_field());

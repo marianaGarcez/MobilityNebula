@@ -58,6 +58,7 @@
 #include <Operators/Windows/Aggregations/MedianAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/Meos/VarAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/Meos/TemporalSequenceAggregationLogicalFunctionV2.hpp>
+#include <Operators/Windows/Aggregations/Meos/KnnAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/MinAggregationLogicalFunction.hpp>
 #include <Functions/Meos/TemporalEContainsGeometryLogicalFunction.hpp>
 #include <Functions/Meos/TemporalIntersectsFunction.hpp>
@@ -1352,6 +1353,60 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                     // For aggregation alias handling, keep one field access in the function builder
                     helper.functionBuilder.push_back(lon);
                 }
+            }
+            else if (funcName == "KNN_AGG")
+            {
+                auto& helper = helpers.top();
+
+                // Expect at least distance and neighbour field; optional constant k
+                if (helper.functionBuilder.size() < 2)
+                {
+                    throw InvalidQuerySyntax(
+                        "KNN_AGG requires at least two arguments (distance field, neighbour field) at {}",
+                        context->getText());
+                }
+
+                const auto neighbourFunction = helper.functionBuilder.back();
+                helper.functionBuilder.pop_back();
+                const auto distanceFunction = helper.functionBuilder.back();
+                helper.functionBuilder.pop_back();
+
+                const auto neighbourFieldOpt = neighbourFunction.tryGet<FieldAccessLogicalFunction>();
+                const auto distanceFieldOpt = distanceFunction.tryGet<FieldAccessLogicalFunction>();
+                if (!neighbourFieldOpt || !distanceFieldOpt)
+                {
+                    throw InvalidQuerySyntax(
+                        "KNN_AGG arguments must be field references (distance field, neighbour field) at {}",
+                        context->getText());
+                }
+
+                std::size_t kValue = 10;
+                if (!helper.constantBuilder.empty())
+                {
+                    const auto kStr = helper.constantBuilder.back();
+                    helper.constantBuilder.pop_back();
+                    try
+                    {
+                        const auto parsed = std::stoll(kStr);
+                        if (parsed <= 0)
+                        {
+                            throw InvalidQuerySyntax(
+                                "KNN_AGG k parameter must be a positive integer at {}", context->getText());
+                        }
+                        kValue = static_cast<std::size_t>(parsed);
+                    }
+                    catch (const std::exception&)
+                    {
+                        throw InvalidQuerySyntax(
+                            "KNN_AGG k parameter must be a positive integer at {}", context->getText());
+                    }
+                }
+
+                helper.windowAggs.push_back(
+                    KnnAggregationLogicalFunction::create(distanceFieldOpt.value(), neighbourFieldOpt.value(), kValue));
+
+                // Keep one field access in the function builder for alias handling
+                helper.functionBuilder.push_back(distanceFunction);
             }
             else if (auto logicalFunction = LogicalFunctionProvider::tryProvide(funcName, helpers.top().functionBuilder))
             {
