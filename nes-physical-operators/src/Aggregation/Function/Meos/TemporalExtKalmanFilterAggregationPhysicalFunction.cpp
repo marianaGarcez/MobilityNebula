@@ -217,23 +217,47 @@ Nautilus::Record TemporalExtKalmanFilterAggregationPhysicalFunction::lower(
 
             std::lock_guard<std::mutex> lock(kalman_meos_mutex);
             std::string trajString(trajStr);
+            NES_DEBUG("TEMPORAL_EXT_KALMAN_FILTER input trajectory string: {}", trajString);
             void* rawTemp = MEOS::Meos::parseTemporalPoint(trajString);
             if (!rawTemp) {
                 return 0;
             }
+            size_t beforeHexSize = 0;
+            char* beforeHex =
+                temporal_as_hexwkb(static_cast<const Temporal*>(rawTemp),
+                                   0x08,
+                                   &beforeHexSize);
+            if (beforeHex) {
+                NES_DEBUG(
+                    "TEMPORAL_EXT_KALMAN_FILTER MEOS hex WKB before filter (size={}): {}",
+                    beforeHexSize,
+                    beforeHex);
+                free(beforeHex);
+            }
 
             // Apply MEOS-side extended Kalman filter with default parameters
             // gate = 3.0, q = 0.01, variance = 1.0, to_drop = false
-            Temporal* filtered =
-                MEOS::Meos::safe_temporal_ext_kalman_filter(
-                    static_cast<const Temporal*>(rawTemp),
-                    3.0,
-                    0.01,
-                    1.0,
-                    false);
+            Temporal* filtered = MEOS::Meos::safe_temporal_ext_kalman_filter(
+                static_cast<const Temporal*>(rawTemp),
+                3.0,
+                0.01,
+                1.0,
+                false);
             if (!filtered) {
                 MEOS::Meos::freeTemporalObject(rawTemp);
                 return 0;
+            }
+            size_t afterHexSize = 0;
+            char* afterHex =
+                temporal_as_hexwkb(filtered,
+                                   0x08,
+                                   &afterHexSize);
+            if (afterHex) {
+                NES_DEBUG(
+                    "TEMPORAL_EXT_KALMAN_FILTER MEOS hex WKB after filter (size={}): {}",
+                    afterHexSize,
+                    afterHex);
+                free(afterHex);
             }
 
             size_t size = 0;

@@ -22,6 +22,5 @@ target_include_directories(mqtt_source_validation_plugin_library
         PRIVATE .
 )
 
-find_package(PahoMqttCpp CONFIG REQUIRED)
 target_link_libraries(mqtt_source_plugin_library PRIVATE PahoMqttCpp::paho-mqttpp3-static)
 target_link_libraries(mqtt_source_validation_plugin_library PRIVATE PahoMqttCpp::paho-mqttpp3-static)

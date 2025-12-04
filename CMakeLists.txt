@@ -202,6 +202,12 @@ set(LIBRARIES ${LIBRARIES} ${CMAKE_DL_LIBS})
 find_package(nlohmann_json REQUIRED)
 set(LIBRARIES ${LIBRARIES} nlohmann_json::nlohmann_json)
 
+find_package(PahoMqttCpp CONFIG QUIET)
+option(NES_ENABLE_MQTT "Build MQTT source/sink plugins (requires PahoMqttCpp)" ${PahoMqttCpp_FOUND})
+if (NES_ENABLE_MQTT AND NOT PahoMqttCpp_FOUND)
+    message(FATAL_ERROR "NES_ENABLE_MQTT is ON but PahoMqttCpp was not found. Install it via vcpkg (enable the 'mqtt' feature) or set NES_ENABLE_MQTT=OFF.")
+endif ()
+
 if (NES_ENABLES_TESTS)
     find_package(GTest CONFIG REQUIRED)
     if (NOT ${GTest_FOUND})

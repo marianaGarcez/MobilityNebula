@@ -20,8 +20,8 @@ activate_optional_plugin("Sources/TCPSource" ON)
 # Enable the Generator source plugin; required by systests and repl tests
 activate_optional_plugin("Sources/GeneratorSource" ON)
 activate_optional_plugin("Sinks/VoidSink" ON)
-activate_optional_plugin("Sources/MQTTSource" ON)
-activate_optional_plugin("Sinks/MQTTSink" ON)
+activate_optional_plugin("Sources/MQTTSource" ${NES_ENABLE_MQTT})
+activate_optional_plugin("Sinks/MQTTSink" ${NES_ENABLE_MQTT})
 
 # MEOS is a dependency
 activate_optional_plugin("MEOS" ON)

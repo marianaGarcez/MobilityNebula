@@ -25,6 +25,7 @@ ENV CMAKE_PREFIX_PATH="/clang/:${CMAKE_PREFIX_PATH}"
 ADD vcpkg /vcpkg_input
 ARG SANITIZER="none"
 ARG ARCH
+ARG ENABLE_MQTT=0
 ENV VCPKG_FORCE_SYSTEM_BINARIES=1
 
 RUN \
@@ -32,6 +33,11 @@ RUN \
       export VCPKG_STDLIB="libcxx"; \
     else \
       export VCPKG_STDLIB="local"; \
+    fi; \
+    if [ "$ENABLE_MQTT" = "1" ]; then \
+      VCPKG_FEATURE_ARGS="--x-feature=mqtt"; \
+    else \
+      VCPKG_FEATURE_ARGS=""; \
     fi; \
     cd /vcpkg_input \
     && git clone https://github.com/microsoft/vcpkg.git vcpkg_repository \
@@ -41,6 +47,7 @@ RUN \
          --overlay-ports=vcpkg-registry/ports \
          --triplet="${ARCH}-linux-${SANITIZER}-${VCPKG_STDLIB}" \
          --host-triplet="${ARCH}-linux-none-${VCPKG_STDLIB}" \
+         ${VCPKG_FEATURE_ARGS} \
     && vcpkg_repository/vcpkg export \
          --overlay-triplets=custom-triplets \
          --overlay-ports=vcpkg-registry/ports \

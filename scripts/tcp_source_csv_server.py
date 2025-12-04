@@ -440,6 +440,11 @@ def stream_to_client(
             sample_filtered,
             sort_per_key,
         ):
+            if verbose:
+                try:
+                    sys.stdout.write(line.decode("utf-8", errors="replace"))
+                except Exception:
+                    pass
             batch.append(line)
             batch_bytes += len(line)
             should_flush = len(batch) >= batch_size or (max_batch_bytes > 0 and batch_bytes >= max_batch_bytes)
@@ -603,4 +608,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
