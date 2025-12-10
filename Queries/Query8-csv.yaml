@@ -1,8 +1,10 @@
 query: |
   SELECT start,
          end,
-         TEMPORAL_EXT_KALMAN_FILTER(TEMPORAL_SEQUENCE(gps_lon, gps_lat, time_utc),
-                                    3.0, 0.01, 1.0, FALSE) AS cleanedtrajectory
+         TEMPORAL_EXT_KALMAN_FILTER(
+           TEMPORAL_SEQUENCE(gps_lon, gps_lat, time_utc),
+           3.0, 0.01, 1.0, FALSE
+         ) AS cleanedtrajectory
   FROM sncb_stream
   WINDOW TUMBLING (time_utc, SIZE 10 SEC)
   INTO file_sink;
@@ -38,13 +40,11 @@ logical:
 
 physical:
   - logical: SNCB_STREAM
-    type: TCP
+    type: File
     parser_config:
       type: CSV
       field_delimiter: ","
       tuple_delimiter: "\n"
     source_config:
-      socket_host: "host.docker.internal"
-      socket_port: "32324"
-      socket_type: "SOCK_STREAM"
-      socket_domain: "AF_INET"
+      file_path: "/workspace/Input/input_sncb.csv"
+

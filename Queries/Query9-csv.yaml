@@ -1,49 +1,46 @@
 query: |
   SELECT start,
-          end,
-          device_id  AS device_id1,
-          device_id2 AS device_id2,
-          gps_lat    AS gps_lat1,
-          gps_lat2   AS gps_lat2,
-          gps_lon    AS gps_lon1,
-          gps_lon2   AS gps_lon2,
-          nearestApproachDistance(gps_lon,
-                                  gps_lat,
-                                  time_utc,
-                                  gps_lon2,
-                                  gps_lat2,
-                                  time_utc) AS mindist
+         end,
+         device_id,
+         KNN_AGG(mindist, device_id2, 10) AS neighbors
   FROM (
-      SELECT * FROM sncb_stream
-  )
-  INNER JOIN (
-      SELECT time_utc,
-              device_id AS device_id2,
-              gps_lat   AS gps_lat2,
-              gps_lon   AS gps_lon2
-      FROM sncb_stream2
-  )
-  ON (device_id < device_id2)
+      SELECT
+        time_utc,
+        device_id,
+        device_id2,
+        nearestApproachDistance(gps_lon,
+                                gps_lat,
+                                time_utc,
+                                gps_lon2,
+                                gps_lat2,
+                                time_utc) AS mindist
+      FROM (
+          SELECT * FROM sncb_stream
+    )
+    INNER JOIN (
+        SELECT time_utc,
+               device_id AS device_id2,
+               gps_lat   AS gps_lat2,
+               gps_lon   AS gps_lon2
+        FROM sncb_stream2
+    )
+    ON (device_id < device_id2 OR device_id > device_id2)
+    WINDOW TUMBLING (time_utc, SIZE 10 SEC)
+  ) AS joined_pairs
+  GROUP BY device_id
   WINDOW TUMBLING (time_utc, SIZE 10 SEC)
-  INTO file_sink
-  ORDER BY mindist
-  LIMIT 10;
+  INTO file_sink;
 
 sinks:
   - name: FILE_SINK
     type: File
     schema:
-      - { name: SNCB_STREAMSNCB_STREAM2$START, type: UINT64 }
-      - { name: SNCB_STREAMSNCB_STREAM2$END,   type: UINT64 }
-      - { name: DEVICE_ID1,                    type: UINT64 }
-      - { name: DEVICE_ID2,                    type: UINT64 }
-      - { name: GPS_LAT1,                      type: FLOAT64 }
-      - { name: GPS_LAT2,                      type: FLOAT64 }
-      - { name: GPS_LON1,                      type: FLOAT64 }
-      - { name: GPS_LON2,                      type: FLOAT64 }
-      - { name: MINDIST,                       type: FLOAT64 }
+      - { name: SNCB_STREAM$START,      type: UINT64 }
+      - { name: SNCB_STREAM$END,        type: UINT64 }
+      - { name: SNCB_STREAM$DEVICE_ID,  type: UINT64 }
+      - { name: NEIGHBORS,              type: VARSIZED }
     config:
-      file_path: "/workspace/Output/output_query7.csv"
+      file_path: "/workspace/Output/output_query9.csv"
       input_format: CSV
 
 logical:
@@ -83,25 +80,20 @@ logical:
 
 physical:
   - logical: SNCB_STREAM
-    type: TCP
+    type: File
     parser_config:
       type: CSV
       field_delimiter: ","
       tuple_delimiter: "\n"
     source_config:
-      socket_host: "host.docker.internal"
-      socket_port: "32324"
-      socket_type: "SOCK_STREAM"
-      socket_domain: "AF_INET"
+      file_path: "/workspace/Input/input_sncb.csv"
 
   - logical: SNCB_STREAM2
-    type: TCP
+    type: File
     parser_config:
       type: CSV
       field_delimiter: ","
       tuple_delimiter: "\n"
     source_config:
-      socket_host: "host.docker.internal"
-      socket_port: "32324"
-      socket_type: "SOCK_STREAM"
-      socket_domain: "AF_INET"
+      file_path: "/workspace/Input/input_sncb.csv"
+

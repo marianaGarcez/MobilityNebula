@@ -2,12 +2,25 @@ services:
   nes-worker:
     image: ${NES_RUNTIME_IMAGE:-marianamgarcez/mobility-nebula:runtime}
     container_name: nes-worker
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
     environment:
       NES_WORKER_THREADS: ${NES_WORKER_THREADS:-2}
     command:
       - /bin/bash
-      - -c
-      - nes-single-node-worker --worker.query_engine.number_of_worker_threads=$$NES_WORKER_THREADS
+      - -lc
+      - |
+        cd /workspace
+        if command -v nes-single-node-worker >/dev/null 2>&1; then
+          nes-single-node-worker --worker.query_engine.number_of_worker_threads=$NES_WORKER_THREADS
+        elif [ -x ./build/nes-single-node-worker/nes-single-node-worker ]; then
+          ./build/nes-single-node-worker/nes-single-node-worker \
+            --worker.query_engine.number_of_worker_threads=$NES_WORKER_THREADS
+        else
+          echo "nes-single-node-worker binary not found in PATH or ./build" >&2
+          exit 1
+        fi
     ports:
       - "8080:8080"
     restart: unless-stopped
@@ -16,9 +29,12 @@ services:
     image: ${NES_RUNTIME_IMAGE:-marianamgarcez/mobility-nebula:runtime}
     depends_on:
       - nes-worker
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
     command:
       - /bin/bash
-      - -c
+      - -lc
       - |
         set -euo pipefail
         for i in {1..60}; do
@@ -28,5 +44,20 @@ services:
           echo "Waiting for nes-worker to be reachable..."
           sleep 1
         done
-        nes-nebuli -d -s nes-worker:8080 -w register -x -i /workspace/Queries/Query1-csv.yaml
+        cd /workspace
+        if command -v nes-nebuli >/dev/null 2>&1; then
+          nes-nebuli -d -s nes-worker:8080 -w register -x -i "${NES_QUERY_FILE:-/workspace/Queries/Query1-csv.yaml}"
+        elif [ -x ./build/nes-nebuli/nes-nebuli ]; then
+          ./build/nes-nebuli/nes-nebuli -d -s nes-worker:8080 -w register -x -i "${NES_QUERY_FILE:-/workspace/Queries/Query1-csv.yaml}"
+        else
+          echo "nes-nebuli binary not found in PATH or ./build" >&2
+          exit 1
+        fi
     restart: "no"
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    ports:
+      - "1883:1883"
+    restart: unless-stopped

@@ -1,21 +1,24 @@
 query: |
   SELECT start,
          end,
-         TEMPORAL_EXT_KALMAN_FILTER(TEMPORAL_SEQUENCE(gps_lon, gps_lat, time_utc),
-                                    3.0, 0.01, 1.0, FALSE) AS cleanedtrajectory
+         TEMPORAL_SEQUENCE(gps_lon, gps_lat, time_utc) AS trajectory
   FROM sncb_stream
-  WINDOW TUMBLING (time_utc, SIZE 10 SEC)
+  WHERE tgeo_at_stbox(gps_lon,
+                      gps_lat,
+                      time_utc,
+                      'SRID=4326;STBOX XT(((4.0,50.0),(4.6,50.8)),[2024-08-01 00:00:00+00, 2025-08-01 00:00:00+00])') = INT32(1)
+  WINDOW SLIDING(time_utc, SIZE 20 SEC, ADVANCE BY 2 SEC)
   INTO file_sink;
 
 sinks:
   - name: FILE_SINK
     type: File
     schema:
-      - { name: SNCB_STREAM$START,      type: UINT64 }
-      - { name: SNCB_STREAM$END,        type: UINT64 }
-      - { name: SNCB_STREAM$CLEANEDTRAJECTORY, type: VARSIZED }
+      - { name: SNCB_STREAM$START,     type: UINT64 }
+      - { name: SNCB_STREAM$END,       type: UINT64 }
+      - { name: SNCB_STREAM$TRAJECTORY, type: VARSIZED }
     config:
-      file_path: "/workspace/Output/output_query8.csv"
+      file_path: "/workspace/Output/output_query4.csv"
       input_format: CSV
 
 logical:
@@ -38,13 +41,10 @@ logical:
 
 physical:
   - logical: SNCB_STREAM
-    type: TCP
+    type: File
     parser_config:
       type: CSV
       field_delimiter: ","
       tuple_delimiter: "\n"
     source_config:
-      socket_host: "host.docker.internal"
-      socket_port: "32324"
-      socket_type: "SOCK_STREAM"
-      socket_domain: "AF_INET"
+      file_path: "/workspace/Input/input_sncb.csv"

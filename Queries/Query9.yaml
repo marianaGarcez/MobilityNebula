@@ -80,19 +80,25 @@ logical:
 
 physical:
   - logical: SNCB_STREAM
-    type: File
+    type: TCP
     parser_config:
       type: CSV
       field_delimiter: ","
       tuple_delimiter: "\n"
     source_config:
-      file_path: "/workspace/Input/input_sncb.csv"
+      socket_host: "host.docker.internal"
+      socket_port: "32324"
+      socket_type: "SOCK_STREAM"
+      socket_domain: "AF_INET"
 
   - logical: SNCB_STREAM2
-    type: File
+    type: TCP
     parser_config:
       type: CSV
       field_delimiter: ","
       tuple_delimiter: "\n"
     source_config:
-      file_path: "/workspace/Input/input_sncb.csv"
+      socket_host: "host.docker.internal"
+      socket_port: "32324"
+      socket_type: "SOCK_STREAM"
+      socket_domain: "AF_INET"
