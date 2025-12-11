@@ -52,13 +52,15 @@ class QueryConfig:
 
 def build_default_query_matrix(repo_root: Path) -> List[QueryConfig]:
     q = []
-    # Q1–Q5: CSV variants
+    # Q1–Q5: CSV variants, with separate TCP+CSV-sink variants where needed.
     q.append(QueryConfig(
         name="Q1",
         query_file=repo_root / "Queries" / "Query1-csv.yaml",
         output_csv=repo_root / "Output" / "output_query1.csv",
         start_col=0,
         end_col=1,
+        # Use TCP source + CSV sink for streaming runs.
+        tcp_query_file=repo_root / "Queries" / "Query1-tcp-file.yaml",
     ))
     q.append(QueryConfig(
         name="Q2",
@@ -74,6 +76,7 @@ def build_default_query_matrix(repo_root: Path) -> List[QueryConfig]:
         output_csv=repo_root / "Output" / "output_query3.csv",
         start_col=0,
         end_col=1,
+        tcp_query_file=repo_root / "Queries" / "Query3.yaml",
     ))
     q.append(QueryConfig(
         name="Q4",
@@ -81,6 +84,7 @@ def build_default_query_matrix(repo_root: Path) -> List[QueryConfig]:
         output_csv=repo_root / "Output" / "output_query4.csv",
         start_col=0,
         end_col=1,
+        tcp_query_file=repo_root / "Queries" / "Query4.yaml",
     ))
     q.append(QueryConfig(
         name="Q5",

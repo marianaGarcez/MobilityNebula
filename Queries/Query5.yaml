@@ -58,6 +58,6 @@ physical:
       tuple_delimiter: "\n"
     source_config:
       socket_host: "host.docker.internal"
-      socket_port: "32324"
+      socket_port: "32323"
       socket_type: "SOCK_STREAM"
       socket_domain: "AF_INET"
