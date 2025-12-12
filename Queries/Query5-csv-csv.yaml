@@ -28,7 +28,7 @@ sinks:
       - { name: SNCB_STREAM$AVG_SPEED,  type: FLOAT64 }
       - { name: SNCB_STREAM$MIN_SPEED,  type: FLOAT64 }
     config:
-      file_path: "/workspace/Output/output_query5.csv"
+      file_path: "/workspace/Output/output_query5-csv.csv"
       input_format: CSV
 
 logical:

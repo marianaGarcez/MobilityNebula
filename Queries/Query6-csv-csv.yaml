@@ -31,7 +31,7 @@ sinks:
       - { name: GPS_LAT1,                      type: FLOAT64 }
       - { name: GPS_LAT2,                      type: FLOAT64 }
     config:
-      file_path: "/workspace/Output/output_query6.csv"
+      file_path: "/workspace/Output/output_query6-csv.csv"
       input_format: CSV
 
 logical:

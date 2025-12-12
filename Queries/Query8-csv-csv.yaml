@@ -17,7 +17,7 @@ sinks:
       - { name: SNCB_STREAM$END,        type: UINT64 }
       - { name: SNCB_STREAM$CLEANEDTRAJECTORY, type: VARSIZED }
     config:
-      file_path: "/workspace/Output/output_query8.csv"
+      file_path: "/workspace/Output/output_query8-csv.csv"
       input_format: CSV
 
 logical:

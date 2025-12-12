@@ -43,7 +43,7 @@ sinks:
       - { name: GPS_LON2,                      type: FLOAT64 }
       - { name: MINDIST,                       type: FLOAT64 }
     config:
-      file_path: "/workspace/Output/output_query7.csv"
+      file_path: "/workspace/Output/output_query7-csv.csv"
       input_format: CSV
 
 logical:

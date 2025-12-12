@@ -40,7 +40,7 @@ sinks:
       - { name: SNCB_STREAM$DEVICE_ID,  type: UINT64 }
       - { name: NEIGHBORS,              type: VARSIZED }
     config:
-      file_path: "/workspace/Output/output_query9.csv"
+      file_path: "/workspace/Output/output_query9-csv.csv"
       input_format: CSV
 
 logical:

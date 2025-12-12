@@ -14,7 +14,7 @@ sinks:
       - { name: SNCB_STREAM$END,       type: UINT64 }
       - { name: SNCB_STREAM$TRAJECTORY, type: VARSIZED }
     config:
-      file_path: "/workspace/Output/output_query3.csv"
+      file_path: "/workspace/Output/output_query3-csv.csv"
       input_format: CSV
 
 logical:

@@ -19,7 +19,7 @@ sinks:
       - { name: SNCB_STREAM$END,   type: UINT64 }
       - { name: SNCB_STREAM$CNT,   type: UINT64 }
     config:
-      file_path: "/workspace/Output/output_query1.csv"
+      file_path: "/workspace/Output/output_query1-csv.csv"
       input_format: CSV
 
 logical:

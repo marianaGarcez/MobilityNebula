@@ -31,7 +31,7 @@ sinks:
       - { name: SNCB_STREAM$VARFF,  type: FLOAT64 }
       - { name: SNCB_STREAM$CNT,    type: UINT64 }
     config:
-      file_path: "/workspace/Output/output_query2.csv"
+      file_path: "/workspace/Output/output_query2-csv.csv"
       input_format: CSV
 
 logical:
