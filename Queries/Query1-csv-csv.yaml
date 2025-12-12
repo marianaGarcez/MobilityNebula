@@ -1,34 +1,25 @@
 query: |
-  SELECT device_id,
-         start,
-         end,
-         TEMPORAL_SEQUENCE(gps_lon, gps_lat, time_utc) AS trajectory,
-         AVG(gps_speed) AS avg_speed,
-         MIN(gps_speed) AS min_speed
+  SELECT start,
+          end,
+          COUNT(time_utc) AS cnt
   FROM sncb_stream
   WHERE edwithin_tgeo_geo(gps_lon,
                           gps_lat,
                           time_utc,
-                          'SRID=4326;POLYGON((4.32 50.60, 4.32 50.72, 4.48 50.72, 4.48 50.60, 4.32 50.60))',
+                          'SRID=4326;POINT(4.3658 50.6456)',
                           FLOAT64(2.0)) = INT32(1)
-  GROUP BY device_id
-  WINDOW SLIDING(time_utc, SIZE 15 SEC, ADVANCE BY 5 SEC)
-  HAVING (avg_speed < FLOAT64(300.0))
-      OR (min_speed < FLOAT64(120.0))
+  WINDOW TUMBLING(time_utc, SIZE 5 SEC)
   INTO file_sink;
 
 sinks:
   - name: FILE_SINK
     type: File
     schema:
-      - { name: SNCB_STREAM$DEVICE_ID,  type: UINT64 }
-      - { name: SNCB_STREAM$START,      type: UINT64 }
-      - { name: SNCB_STREAM$END,        type: UINT64 }
-      - { name: SNCB_STREAM$TRAJECTORY, type: VARSIZED }
-      - { name: SNCB_STREAM$AVG_SPEED,  type: FLOAT64 }
-      - { name: SNCB_STREAM$MIN_SPEED,  type: FLOAT64 }
+      - { name: SNCB_STREAM$START, type: UINT64 }
+      - { name: SNCB_STREAM$END,   type: UINT64 }
+      - { name: SNCB_STREAM$CNT,   type: UINT64 }
     config:
-      file_path: "/workspace/Output/output_query5.csv"
+      file_path: "/workspace/Output/output_query1.csv"
       input_format: CSV
 
 logical:
@@ -57,4 +48,4 @@ physical:
       field_delimiter: ","
       tuple_delimiter: "\n"
     source_config:
-      file_path: "/workspace/Input/input_sncb.csv"
+      file_path: "/workspace/Input/selected_columns_df_noheader.csv"
