@@ -56,6 +56,10 @@ constexpr static std::string_view TimestampFieldName = "timestamp";
 // Mutex for thread-safe MEOS operations
 static std::mutex meos_mutex;
 
+struct MonotonicTimeState {
+    bool initialized;
+    long long lastTime;
+};
 
 TemporalSequenceAggregationPhysicalFunction::TemporalSequenceAggregationPhysicalFunction(
     DataType inputType,
@@ -173,6 +177,11 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
     // Track if this is the first point using a counter
     auto pointCounter = nautilus::val<int64_t>(0);
 
+    MonotonicTimeState timeState{};
+    timeState.initialized = false;
+    timeState.lastTime = 0;
+    auto timeStatePtr = nautilus::val<MonotonicTimeState*>(&timeState);
+
     // Read from paged vector in original order
     const auto endIt = pagedVectorRef.end(allFieldNames);
     for (auto candidateIt = pagedVectorRef.begin(allFieldNames); candidateIt != endIt; ++candidateIt)
@@ -190,7 +199,12 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
 
         // Append point to trajectory string in MEOS format
         trajectoryStr = nautilus::invoke(
-            +[](char* buffer, double lonVal, double latVal, int64_t tsVal, int64_t counter) -> char*
+            +[](char* buffer,
+                double lonVal,
+                double latVal,
+                int64_t tsVal,
+                int64_t counter,
+                MonotonicTimeState* state) -> char*
             {
                 if (counter > 0) {
                     strcat(buffer, ", ");
@@ -207,6 +221,17 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
                     adjustedTime = tsVal;
                 }
 
+                // Ensure strictly increasing timestamps for MEOS
+                if (!state->initialized) {
+                    state->initialized = true;
+                    state->lastTime = adjustedTime;
+                } else {
+                    if (adjustedTime <= state->lastTime) {
+                        adjustedTime = state->lastTime + 1;
+                    }
+                    state->lastTime = adjustedTime;
+                }
+
                 // Use MEOS wrapper to convert timestamp
                 std::string timestampString = MEOS::Meos::convertSecondsToTimestamp(adjustedTime);
                 const char* timestampStr = timestampString.c_str();
@@ -221,7 +246,8 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
             lon,
             lat,
             timestamp,
-            pointCounter);
+            pointCounter,
+            timeStatePtr);
 
         pointCounter = pointCounter + nautilus::val<int64_t>(1);
     }
