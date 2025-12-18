@@ -2,41 +2,42 @@ services:
   nes-worker:
     image: ${NES_RUNTIME_IMAGE:-marianamgarcez/mobility-nebula:runtime}
     container_name: nes-worker
-    working_dir: /workspace
     volumes:
-      - .:/workspace
+      - ./Queries:/workspace/Queries:ro
+      - ./Input:/workspace/Input:ro
+      - ./Output:/workspace/Output
     environment:
       NES_WORKER_THREADS: ${NES_WORKER_THREADS:-2}
     command:
       - /bin/bash
       - -lc
       - |
-        cd /workspace
-        if command -v nes-single-node-worker >/dev/null 2>&1; then
-          nes-single-node-worker --worker.query_engine.number_of_worker_threads=$NES_WORKER_THREADS
-        elif [ -x ./build/nes-single-node-worker/nes-single-node-worker ]; then
-          ./build/nes-single-node-worker/nes-single-node-worker \
-            --worker.query_engine.number_of_worker_threads=$NES_WORKER_THREADS
-        else
-          echo "nes-single-node-worker binary not found in PATH or ./build" >&2
-          exit 1
-        fi
+        nes-single-node-worker --worker.query_engine.number_of_worker_threads=$NES_WORKER_THREADS
     ports:
       - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   query-registration:
     image: ${NES_RUNTIME_IMAGE:-marianamgarcez/mobility-nebula:runtime}
     depends_on:
       - nes-worker
-    working_dir: /workspace
     volumes:
-      - .:/workspace
+      - ./Queries:/workspace/Queries:ro
+      - ./Input:/workspace/Input:ro
+      - ./Output:/workspace/Output
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command:
       - /bin/bash
       - -lc
       - |
         set -euo pipefail
+        wait_flag=""
+        if [ "${NES_WAIT_FOR_QUERY:-1}" = "1" ]; then
+          wait_flag="-w"
+        fi
         for i in {1..60}; do
           if (echo > /dev/tcp/nes-worker/8080) >/dev/null 2>&1; then
             break
@@ -44,15 +45,7 @@ services:
           echo "Waiting for nes-worker to be reachable..."
           sleep 1
         done
-        cd /workspace
-        if command -v nes-nebuli >/dev/null 2>&1; then
-          nes-nebuli -d -s nes-worker:8080 -w register -x -i "${NES_QUERY_FILE:-/workspace/Queries/Query1-csv.yaml}"
-        elif [ -x ./build/nes-nebuli/nes-nebuli ]; then
-          ./build/nes-nebuli/nes-nebuli -d -s nes-worker:8080 -w register -x -i "${NES_QUERY_FILE:-/workspace/Queries/Query1-csv.yaml}"
-        else
-          echo "nes-nebuli binary not found in PATH or ./build" >&2
-          exit 1
-        fi
+        nes-nebuli -d -s nes-worker:8080 ${wait_flag} register -x -i "${NES_QUERY_FILE:-/workspace/Queries/Query1-csv.yaml}"
     restart: "no"
 
   mosquitto:

@@ -23,6 +23,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import socket
 import subprocess
 import sys
 import time
@@ -37,6 +39,8 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from edbt_collect_metrics import collect_metrics  # type: ignore[import]
+
+_SOCKET_PORT_RE = re.compile(r'^(\s*socket_port\s*:\s*)(["\']?)(\d+)(["\']?)\s*$')
 
 
 @dataclass
@@ -168,7 +172,7 @@ def run_one_query(
     ]
 
     start_time = time.monotonic()
-    completed = subprocess.run(cmd, env=env)
+    completed = subprocess.run(cmd, env=env, cwd=str(compose_file.parent))
     end_time = time.monotonic()
     run_seconds = end_time - start_time
 
@@ -236,16 +240,166 @@ def run_one_query_stream(
             "error": f"input_csv_not_found:{input_csv}",
         }
 
+    def pick_free_port(preferred: int) -> int:
+        if preferred > 0:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind(("0.0.0.0", preferred))
+                return preferred
+            except OSError:
+                pass
+            finally:
+                s.close()
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.bind(("0.0.0.0", 0))
+            return int(s.getsockname()[1])
+        finally:
+            s.close()
+
+    def materialize_tcp_query(src: Path, chosen_port: int) -> Path:
+        tmp_dir = src.parent / "_tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        dst = tmp_dir / f"{src.stem}_port{chosen_port}{src.suffix}"
+
+        replaced = False
+        out_lines: list[str] = []
+        for line in src.read_text(encoding="utf-8").splitlines(keepends=False):
+            m = _SOCKET_PORT_RE.match(line)
+            if m:
+                prefix, q1, _, q2 = m.groups()
+                quote = q1 or q2 or '"'
+                out_lines.append(f"{prefix}{quote}{chosen_port}{quote}")
+                replaced = True
+            else:
+                out_lines.append(line)
+
+        if not replaced:
+            raise ValueError(f"socket_port not found in {src}")
+
+        dst.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+        return dst
+
+    def docker_compose_service_id(service: str) -> str:
+        try:
+            out = subprocess.check_output(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(compose_file),
+                    "ps",
+                    "--all",
+                    "-q",
+                    service,
+                ],
+                cwd=str(compose_file.parent),
+                env=env,
+            ).decode("utf-8", errors="replace")
+            return out.strip()
+        except Exception:
+            return ""
+
+    def docker_logs(container_id: str) -> str:
+        if not container_id:
+            return ""
+        try:
+            return subprocess.check_output(
+                ["docker", "logs", "--tail", "200", container_id],
+                stderr=subprocess.STDOUT,
+            ).decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+
     # Ensure output directory exists and previous file does not interfere.
     cfg.output_csv.parent.mkdir(parents=True, exist_ok=True)
     if cfg.output_csv.exists():
         cfg.output_csv.unlink()
 
     env = os.environ.copy()
-    env["NES_QUERY_FILE"] = f"/workspace/Queries/{tcp_query.name}"
     env["NES_WORKER_THREADS"] = str(worker_threads)
+    env["NES_WAIT_FOR_QUERY"] = "0"
     if runtime_image:
         env["NES_RUNTIME_IMAGE"] = runtime_image
+
+    chosen_port = pick_free_port(port)
+    tcp_query_materialized = materialize_tcp_query(tcp_query, chosen_port)
+
+    # Start load generator early so the TCP source can connect immediately when the query starts.
+    # (Some TCP sources do not retry on initial connection failure.)
+    server_script = Path(__file__).resolve().parent / "tcp_source_csv_server.py"
+    run_log_dir = cfg.output_csv.parent / "run_matrix"
+    run_log_dir.mkdir(parents=True, exist_ok=True)
+    source_log = run_log_dir / f"{cfg.name}_tcp_source.log"
+    source_log.write_text("", encoding="utf-8")
+
+    def start_load_proc(rps: float) -> subprocess.Popen:
+        cmd = [
+            sys.executable,
+            "-u",
+            str(server_script),
+            str(input_csv),
+            "--host",
+            host,
+            "--port",
+            str(chosen_port),
+            "--rows-per-sec",
+            str(rps),
+            "--batch-size",
+            str(batch_size),
+            "--loop",
+            "--log-connections",
+            # Ensure timestamps keep increasing even when looping and across duplicates.
+            # Also avoid dropping events from different devices that share the same timestamp.
+            "--order-scope",
+            "per-key",
+            "--key-col-index",
+            "1",
+            "--repair-monotonic-seconds",
+            "1",
+        ]
+        f = source_log.open("a", encoding="utf-8")
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        proc = subprocess.Popen(cmd, stdout=f, stderr=f, env=env)
+        f.close()
+        return proc
+
+    initial_rps = rows_per_sec
+    if jitter_profile:
+        # Keep a stable connection for now by running the first phase rate for the full duration.
+        # (Restarting the TCP server between phases can drop the connection and yield empty output.)
+        try:
+            first_seg = jitter_profile.split(";", 1)[0].strip()
+            if first_seg:
+                initial_rps = float(first_seg.split(",", 1)[0].strip()) or rows_per_sec
+        except Exception:
+            initial_rps = rows_per_sec
+
+    load_proc: subprocess.Popen | None = None
+    try:
+        load_proc = start_load_proc(initial_rps)
+    except Exception as exc:  # pylint: disable=broad-except
+        return {
+            "query": cfg.name,
+            "tcp_query_file": str(tcp_query_materialized),
+            "error": f"failed_to_start_load_generator:{exc}",
+            "tcp_source_log": str(source_log),
+            "tcp_port": chosen_port,
+        }
+
+    # If the server failed to bind/crashed immediately, bail out early with its log.
+    time.sleep(0.25)
+    if load_proc.poll() is not None:
+        return {
+            "query": cfg.name,
+            "tcp_query_file": str(tcp_query_materialized),
+            "error": f"tcp_source_exited_early:{load_proc.returncode}",
+            "tcp_source_log": str(source_log),
+            "tcp_port": chosen_port,
+        }
 
     # Start the stack in the background.
     up_cmd = [
@@ -257,102 +411,121 @@ def run_one_query_stream(
         "-d",
         "--force-recreate",
     ]
-    up_res = subprocess.run(up_cmd, env=env)
+    env["NES_QUERY_FILE"] = f"/workspace/Queries/{tcp_query_materialized.parent.name}/{tcp_query_materialized.name}"
+    up_res = subprocess.run(up_cmd, env=env, cwd=str(compose_file.parent))
     if up_res.returncode != 0:
+        if load_proc is not None:
+            load_proc.terminate()
+            try:
+                load_proc.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                load_proc.kill()
+                load_proc.wait(timeout=5.0)
         return {
             "query": cfg.name,
-            "tcp_query_file": str(tcp_query),
+            "tcp_query_file": str(tcp_query_materialized),
             "error": "docker_compose_up_failed",
             "docker_returncode": up_res.returncode,
         }
 
-    # Give nes-worker + query-registration a moment to come up.
-    time.sleep(5.0)
+    # Ensure query registration finished before sending data.
+    query_reg_id = ""
+    deadline = time.time() + 60.0
+    while time.time() < deadline:
+        query_reg_id = docker_compose_service_id("query-registration")
+        if query_reg_id:
+            break
+        time.sleep(0.5)
 
-    # Start load generator (looping to sustain run_seconds), optionally
-    # with a jitter profile of multiple phases.
-    server_script = Path(__file__).resolve().parent / "tcp_source_csv_server.py"
-    def start_load_proc(rps: float) -> subprocess.Popen:
-        cmd = [
-            sys.executable,
-            str(server_script),
-            str(input_csv),
-            "--host",
-            host,
-            "--port",
-            str(port),
-            "--rows-per-sec",
-            str(rps),
-            "--batch-size",
-            str(batch_size),
-            "--loop",
-        ]
-        return subprocess.Popen(cmd)
+    if not query_reg_id:
+        subprocess.run(
+            ["docker", "compose", "-f", str(compose_file), "down", "--remove-orphans"],
+            env=env,
+            cwd=str(compose_file.parent),
+        )
+        if load_proc is not None:
+            load_proc.terminate()
+            try:
+                load_proc.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                load_proc.kill()
+                load_proc.wait(timeout=5.0)
+        return {
+            "query": cfg.name,
+            "tcp_query_file": str(tcp_query_materialized),
+            "error": "query_registration_container_not_found",
+        }
+
+    try:
+        wait_res = subprocess.run(["docker", "wait", query_reg_id], timeout=90.0, capture_output=True)
+    except subprocess.TimeoutExpired:
+        wait_res = None
+
+    if wait_res is None or wait_res.returncode != 0 or wait_res.stdout.strip() not in {b"0", b"0\n"}:
+        qr_logs = docker_logs(query_reg_id)
+        worker_id = docker_compose_service_id("nes-worker")
+        worker_logs = docker_logs(worker_id)
+        subprocess.run(
+            ["docker", "compose", "-f", str(compose_file), "down", "--remove-orphans"],
+            env=env,
+            cwd=str(compose_file.parent),
+        )
+        if load_proc is not None:
+            load_proc.terminate()
+            try:
+                load_proc.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                load_proc.kill()
+                load_proc.wait(timeout=5.0)
+        return {
+            "query": cfg.name,
+            "tcp_query_file": str(tcp_query_materialized),
+            "error": "query_registration_failed",
+            "query_registration_logs_tail": qr_logs,
+            "nes_worker_logs_tail": worker_logs,
+        }
+
+    # Sanity check: ensure the worker actually connected to the TCP source. If we never got
+    # a connection, the output will likely be empty (header-only).
+    connected_deadline = time.time() + 15.0
+    while time.time() < connected_deadline:
+        try:
+            if "Client connected" in source_log.read_text(encoding="utf-8", errors="replace"):
+                break
+        except Exception:
+            pass
+        time.sleep(0.25)
+    else:
+        subprocess.run(
+            ["docker", "compose", "-f", str(compose_file), "down", "--remove-orphans"],
+            env=env,
+            cwd=str(compose_file.parent),
+        )
+        if load_proc is not None:
+            load_proc.terminate()
+            try:
+                load_proc.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                load_proc.kill()
+                load_proc.wait(timeout=5.0)
+        return {
+            "query": cfg.name,
+            "tcp_query_file": str(tcp_query_materialized),
+            "error": "tcp_source_never_connected",
+            "tcp_source_log": str(source_log),
+            "tcp_port": chosen_port,
+        }
 
     load_start = time.monotonic()
 
-    if jitter_profile:
-        # Profile format: "10000,10;20000,10;40000,10"
-        phases: List[tuple[float, float]] = []
-        for segment in jitter_profile.split(";"):
-            segment = segment.strip()
-            if not segment:
-                continue
-            parts = segment.split(",")
-            if len(parts) != 2:
-                continue
-            try:
-                rps = float(parts[0])
-                dur = float(parts[1])
-            except ValueError:
-                continue
-            if rps <= 0 or dur <= 0:
-                continue
-            phases.append((rps, dur))
-
-        if not phases:
-            phases.append((rows_per_sec, run_seconds))
-
-        for rps, dur in phases:
-            try:
-                proc = start_load_proc(rps)
-            except Exception as exc:  # pylint: disable=broad-except
-                subprocess.run(
-                    ["docker", "compose", "-f", str(compose_file), "down", "--remove-orphans"],
-                    env=env,
-                )
-                return {
-                    "query": cfg.name,
-                    "tcp_query_file": str(tcp_query),
-                    "error": f"failed_to_start_load_generator:{exc}",
-                }
-            time.sleep(dur)
-            proc.terminate()
-            try:
-                proc.wait(timeout=10.0)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=5.0)
-    else:
+    time.sleep(run_seconds)
+    if load_proc is not None:
+        load_proc.terminate()
         try:
-            proc = start_load_proc(rows_per_sec)
-        except Exception as exc:  # pylint: disable=broad-except
-            subprocess.run(
-                ["docker", "compose", "-f", str(compose_file), "down", "--remove-orphans"],
-                env=env,
-            )
-            return {
-                "query": cfg.name,
-                "tcp_query_file": str(tcp_query),
-                "error": f"failed_to_start_load_generator:{exc}",
-            }
-        time.sleep(run_seconds)
-        proc.terminate()
-        try:
-            proc.wait(timeout=10.0)
+            load_proc.wait(timeout=10.0)
         except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=5.0)
+            load_proc.kill()
+            load_proc.wait(timeout=5.0)
 
     load_end = time.monotonic()
     effective_run_seconds = load_end - load_start
@@ -365,13 +538,16 @@ def run_one_query_stream(
     subprocess.run(
         ["docker", "compose", "-f", str(compose_file), "down", "--remove-orphans"],
         env=env,
+        cwd=str(compose_file.parent),
     )
 
     result: Dict[str, Any] = {
         "query": cfg.name,
-        "tcp_query_file": str(tcp_query),
+        "tcp_query_file": str(tcp_query_materialized),
         "output_csv": str(cfg.output_csv),
         "run_seconds_wall": effective_run_seconds,
+        "tcp_source_log": str(source_log),
+        "tcp_port": chosen_port,
     }
 
     if not cfg.output_csv.is_file():

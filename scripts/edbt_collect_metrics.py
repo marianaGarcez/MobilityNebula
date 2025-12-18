@@ -91,6 +91,7 @@ def collect_metrics(
     min_emit: Optional[int] = None
     max_emit: Optional[int] = None
     num_rows = 0
+    time_is_millis: Optional[bool] = None
 
     with path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.reader(f)
@@ -112,7 +113,11 @@ def collect_metrics(
             if min_start is None or start < min_start:
                 min_start = start
 
-            duration_ms = float(max(0, end - start)) * 1000.0
+            delta = max(0, end - start)
+            if time_is_millis is None and delta > 0:
+                time_is_millis = delta >= 1000
+            scale_to_ms = 1.0 if time_is_millis else 1000.0
+            duration_ms = float(delta) * scale_to_ms
             wait_ms = duration_ms / 2.0
 
             window_durations_ms.append(duration_ms)
@@ -144,13 +149,16 @@ def collect_metrics(
         }
 
     # Derive run_seconds if not supplied.
+    is_millis = bool(time_is_millis)
+    divisor = 1000.0 if is_millis else 1.0
+
     if run_seconds is None:
         if emit_col is not None and min_emit is not None and max_emit is not None and max_emit > min_emit:
             # Prefer wall-clock span if we have emit timestamps.
-            run_seconds = float(max_emit - min_emit)
+            run_seconds = float(max_emit - min_emit) / divisor
         elif min_start is not None and max_end is not None and max_end > min_start:
             # Fallback: event-time span.
-            run_seconds = float(max_end - min_start)
+            run_seconds = float(max_end - min_start) / divisor
         else:
             run_seconds = 0.0
 
@@ -175,6 +183,7 @@ def collect_metrics(
         processing_vals = [processing_ms] * num_rows
         sink_vals = [sink_ms] * num_rows
     else:
+        window_wait_ms = []
         # We need to re-parse to compute per-row total latency using emit timestamps.
         # This keeps memory usage bounded and avoids storing per-row timestamps above.
         with path.open("r", encoding="utf-8", newline="") as f:
@@ -191,9 +200,11 @@ def collect_metrics(
                 except ValueError:
                     continue
 
-                duration_ms = float(max(0, end - start)) * 1000.0
+                delta = max(0, end - start)
+                scale_to_ms = 1.0 if is_millis else 1000.0
+                duration_ms = float(delta) * scale_to_ms
                 wait_ms = duration_ms / 2.0
-                latency_ms = float(max(0, emit - end)) * 1000.0
+                latency_ms = float(max(0, emit - end)) * scale_to_ms
 
                 total_latency_ms.append(latency_ms)
                 window_wait_ms.append(wait_ms)

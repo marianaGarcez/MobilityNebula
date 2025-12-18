@@ -14,6 +14,7 @@ import csv
 import heapq
 import socket
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,6 +71,11 @@ def parse_arguments() -> argparse.Namespace:
     p.add_argument("--sample-filtered", type=int, default=0,
                    help="Print first N filtered diagnostics to stdout")
     p.add_argument("--verbose", action="store_true", help="Print progress/diagnostics")
+    p.add_argument(
+        "--log-connections",
+        action="store_true",
+        help="Log connection events and totals (no per-row output)",
+    )
     p.add_argument("--quiet", action="store_true", help="Suppress non-error console output")
     p.add_argument("--loop", action="store_true", help="Replay file indefinitely")
 
@@ -411,6 +417,7 @@ def stream_to_client(
     filtered_log: str | None,
     sample_filtered: int,
     sort_per_key: bool,
+    log_connections: bool,
 ) -> None:
     if delay > 0.0 and rows_per_sec > 0.0:
         raise ValueError("--delay and --rows-per-sec are mutually exclusive")
@@ -473,7 +480,7 @@ def stream_to_client(
         pass
     finally:
         # Report how many tuples have been sent to this client
-        if verbose:
+        if verbose or log_connections:
             try:
                 print(f"Total tuples sent: {tuples_sent}")
             except Exception:
@@ -511,12 +518,13 @@ def run_server(
     filtered_log: str | None,
     sample_filtered: int,
     sort_per_key: bool,
+    log_connections: bool,
 ) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_sock:
         server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_sock.bind((host, port))
         server_sock.listen(1)
-        if verbose and not (False):
+        if (verbose or log_connections) and not (False):
             print(
                 f"Streaming '{csv_path}' on {host}:{port} "
                 f"(delay={delay}s, rows_per_sec={rows_per_sec}, batch_size={batch_size}, loop={loop}, "
@@ -524,14 +532,49 @@ def run_server(
                 f"key_col_index={key_col_index}, order_scope={order_scope}, tcp_nodelay={tcp_nodelay}, send_buffer={send_buffer}, "
                 f"no_order={no_order}, preload={preload}, sort_per_key={sort_per_key})"
             )
+        def handle_client(client_sock: socket.socket, addr) -> None:
+            if verbose or log_connections:
+                print(f"Client connected from {addr[0]}:{addr[1]}")
+            try:
+                stream_to_client(
+                    client_sock,
+                    csv_path,
+                    delay,
+                    rows_per_sec,
+                    batch_size,
+                    max_batch_bytes,
+                    loop,
+                    delimiter,
+                    ts_col_index,
+                    skip_header,
+                    verbose,
+                    key_col_index,
+                    order_scope,
+                    no_order,
+                    preload,
+                    nudge_equal_seconds,
+                    repair_monotonic_seconds,
+                    filter_col_index,
+                    filter_values,
+                    filtered_log,
+                    sample_filtered,
+                    sort_per_key,
+                    log_connections,
+                )
+            finally:
+                try:
+                    client_sock.close()
+                except OSError:
+                    pass
+                if verbose or log_connections:
+                    print(f"Client {addr[0]}:{addr[1]} disconnected")
+
         while True:
             try:
                 client_sock, addr = server_sock.accept()
             except KeyboardInterrupt:
                 print("\nServer interrupted. Exiting.")
                 break
-            if verbose:
-                print(f"Client connected from {addr[0]}:{addr[1]}")
             try:
                 if tcp_nodelay:
                     client_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -539,32 +582,12 @@ def run_server(
                     client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, send_buffer)
             except OSError:
                 pass
-            stream_to_client(
-                client_sock,
-                csv_path,
-                delay,
-                rows_per_sec,
-                batch_size,
-                max_batch_bytes,
-                loop,
-                delimiter,
-                ts_col_index,
-                skip_header,
-                verbose,
-                key_col_index,
-                order_scope,
-                no_order,
-                preload,
-                nudge_equal_seconds,
-                repair_monotonic_seconds,
-                filter_col_index,
-                filter_values,
-                filtered_log,
-                sample_filtered,
-                sort_per_key,
-            )
-            if verbose:
-                print(f"Client {addr[0]}:{addr[1]} disconnected")
+
+            threading.Thread(
+                target=handle_client,
+                args=(client_sock, addr),
+                daemon=True,
+            ).start()
 
 
 def main() -> int:
@@ -596,6 +619,7 @@ def main() -> int:
             args.filtered_log,
             args.sample_filtered,
             args.sort_per_key,
+            False if args.quiet else args.log_connections,
         )
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
