@@ -46,6 +46,8 @@ extern "C" {
 #include <meos.h>
 }
 
+#include "TrajectoryEventTimeOrdering.hpp"
+
 namespace NES
 {
 
@@ -55,11 +57,6 @@ constexpr static std::string_view TimestampFieldName = "timestamp";
 
 // Mutex for thread-safe MEOS operations
 static std::mutex meos_mutex;
-
-struct MonotonicTimeState {
-    bool initialized;
-    long long lastTime;
-};
 
 TemporalSequenceAggregationPhysicalFunction::TemporalSequenceAggregationPhysicalFunction(
     DataType inputType,
@@ -153,120 +150,38 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
         return resultRecord;
     }
 
-    // Build the trajectory string in MEOS format for temporal instant set
-    // For single point: Point(-73.9857 40.7484)@2000-01-01 08:00:00
-    // For multiple points: {Point(-73.9857 40.7484)@2000-01-01 08:00:00, Point(-73.9787 40.7505)@2000-01-01 08:05:00}
-    auto trajectoryStr = nautilus::invoke(
-        +[](const Nautilus::Interface::PagedVector* pagedVector) -> char*
-        {
-            // Allocate a buffer for the trajectory string
-            // Each point is approximately 100 chars: Point(-123.456789 12.345678)@2000-01-01 08:00:00
-            // Add extra space to prevent buffer issues
-            size_t bufferSize = pagedVector->getTotalNumberOfEntries() * 150 + 50;
-            char* buffer = (char*)malloc(bufferSize);
+    const auto memoryLayout = bufferRef->getMemoryLayout();
+    const auto* memoryLayoutPtr = memoryLayout.get();
+    const auto lonIndexOpt = memoryLayoutPtr->getFieldIndexFromName(std::string(LonFieldName));
+    const auto latIndexOpt = memoryLayoutPtr->getFieldIndexFromName(std::string(LatFieldName));
+    const auto tsIndexOpt = memoryLayoutPtr->getFieldIndexFromName(std::string(TimestampFieldName));
 
-            // Initialize buffer to zeros to ensure proper null termination
-            memset(buffer, 0, bufferSize);
-
-            // Start with opening brace for temporal instant set
-            strcpy(buffer, "{");
-            return buffer;
-        },
-        pagedVectorPtr);
-
-    // Track if this is the first point using a counter
-    auto pointCounter = nautilus::val<int64_t>(0);
-
-    MonotonicTimeState timeState{};
-    timeState.initialized = false;
-    timeState.lastTime = 0;
-    auto timeStatePtr = nautilus::val<MonotonicTimeState*>(&timeState);
-
-    // Read from paged vector in original order
-    const auto endIt = pagedVectorRef.end(allFieldNames);
-    for (auto candidateIt = pagedVectorRef.begin(allFieldNames); candidateIt != endIt; ++candidateIt)
+    if (!lonIndexOpt.has_value() || !latIndexOpt.has_value() || !tsIndexOpt.has_value())
     {
-        const auto itemRecord = *candidateIt;
-
-        // Read all three fields for temporal sequence
-        const auto lonValue = itemRecord.read(std::string(LonFieldName));
-        const auto latValue = itemRecord.read(std::string(LatFieldName));
-        const auto timestampValue = itemRecord.read(std::string(TimestampFieldName));
-
-        auto lon = lonValue.cast<nautilus::val<double>>();
-        auto lat = latValue.cast<nautilus::val<double>>();
-        auto timestamp = timestampValue.cast<nautilus::val<int64_t>>();
-
-        // Append point to trajectory string in MEOS format
-        trajectoryStr = nautilus::invoke(
-            +[](char* buffer,
-                double lonVal,
-                double latVal,
-                int64_t tsVal,
-                int64_t counter,
-                MonotonicTimeState* state) -> char*
-            {
-                if (counter > 0) {
-                    strcat(buffer, ", ");
-                }
-
-                // Convert timestamp to MEOS format
-                // Determine if timestamp is in seconds or milliseconds
-                long long adjustedTime;
-                if (tsVal > 1000000000000LL) {
-                    // Milliseconds (13+ digits)
-                    adjustedTime = tsVal / 1000;
-                } else {
-                    // Seconds (10 digits or less) - Unix timestamp
-                    adjustedTime = tsVal;
-                }
-
-                // Ensure strictly increasing timestamps for MEOS
-                if (!state->initialized) {
-                    state->initialized = true;
-                    state->lastTime = adjustedTime;
-                } else {
-                    if (adjustedTime <= state->lastTime) {
-                        adjustedTime = state->lastTime + 1;
-                    }
-                    state->lastTime = adjustedTime;
-                }
-
-                // Use MEOS wrapper to convert timestamp
-                std::string timestampString = MEOS::Meos::convertSecondsToTimestamp(adjustedTime);
-                const char* timestampStr = timestampString.c_str();
-
-                char pointStr[120];
-                // Use Point format that MEOS expects: Point(lon lat)@timestamp
-                sprintf(pointStr, "Point(%.6f %.6f)@%s", lonVal, latVal, timestampStr);
-                strcat(buffer, pointStr);
-                return buffer;
-            },
-            trajectoryStr,
-            lon,
-            lat,
-            timestamp,
-            pointCounter,
-            timeStatePtr);
-
-        pointCounter = pointCounter + nautilus::val<int64_t>(1);
+        throw UnknownOperation("Trajectory fields not found in aggregation state schema.");
     }
 
-    // Close the trajectory string - always use braces for temporal instant sets
-    trajectoryStr = nautilus::invoke(
-        +[](char* buffer, int64_t totalPoints) -> char*
+    auto trajectoryStr = nautilus::invoke(
+        +[](const Nautilus::Interface::PagedVector* pagedVector,
+            const MemoryLayout* layout,
+            uint64_t lonFieldIndex,
+            uint64_t latFieldIndex,
+            uint64_t tsFieldIndex) -> char*
         {
-            // Always close with brace - temporal instant sets require {} even for single points
-            strcat(buffer, "}");
-            if (totalPoints == 1) {
-                printf("DEBUG: Single point trajectory string: %s\n", buffer);
-            } else {
-                printf("DEBUG: Multiple points trajectory string: %s\n", buffer);
-            }
-            return buffer;
+            return MeosTrajectoryDetail::buildSortedTemporalInstantSetString(
+                pagedVector,
+                layout,
+                MeosTrajectoryDetail::TrajectoryFieldIndices{
+                    lonFieldIndex,
+                    latFieldIndex,
+                    tsFieldIndex,
+                });
         },
-        trajectoryStr,
-        pointCounter);
+        pagedVectorPtr,
+        nautilus::val<const MemoryLayout*>(memoryLayoutPtr),
+        nautilus::val<uint64_t>(lonIndexOpt.value()),
+        nautilus::val<uint64_t>(latIndexOpt.value()),
+        nautilus::val<uint64_t>(tsIndexOpt.value()));
 
     nautilus::invoke(
         +[](const char* buffer) -> void

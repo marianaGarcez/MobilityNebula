@@ -30,6 +30,8 @@
 #include <cstring>
 #include <mutex>
 
+#include "TrajectoryEventTimeOrdering.hpp"
+
 namespace NES {
 
 constexpr static std::string_view LonFieldName = "lon";
@@ -38,11 +40,6 @@ constexpr static std::string_view TimestampFieldName = "timestamp";
 
 // Mutex for thread-safe MEOS operations shared with other MEOS aggregations
 static std::mutex kalman_meos_mutex;
-
-struct MonotonicTimeState {
-    bool initialized;
-    long long lastTime;
-};
 
 TemporalExtKalmanFilterAggregationPhysicalFunction::TemporalExtKalmanFilterAggregationPhysicalFunction(
     DataType inputType,
@@ -129,93 +126,38 @@ Nautilus::Record TemporalExtKalmanFilterAggregationPhysicalFunction::lower(
         return resultRecord;
     }
 
-    auto trajectoryStr = nautilus::invoke(
-        +[](const Nautilus::Interface::PagedVector* pagedVector) -> char* {
-            size_t bufferSize = pagedVector->getTotalNumberOfEntries() * 150 + 50;
-            char* buffer = static_cast<char*>(malloc(bufferSize));
-            memset(buffer, 0, bufferSize);
-            strcpy(buffer, "{");
-            return buffer;
-        },
-        pagedVectorPtr);
+    const auto memoryLayout = bufferRef->getMemoryLayout();
+    const auto* memoryLayoutPtr = memoryLayout.get();
+    const auto lonIndexOpt = memoryLayoutPtr->getFieldIndexFromName(std::string(LonFieldName));
+    const auto latIndexOpt = memoryLayoutPtr->getFieldIndexFromName(std::string(LatFieldName));
+    const auto tsIndexOpt = memoryLayoutPtr->getFieldIndexFromName(std::string(TimestampFieldName));
 
-    auto pointCounter = nautilus::val<int64_t>(0);
-
-    MonotonicTimeState timeState{};
-    timeState.initialized = false;
-    timeState.lastTime = 0;
-    auto timeStatePtr = nautilus::val<MonotonicTimeState*>(&timeState);
-
-    const auto endIt = pagedVectorRef.end(allFieldNames);
-    for (auto it = pagedVectorRef.begin(allFieldNames); it != endIt; ++it) {
-        const auto itemRecord = *it;
-
-        const auto lonValue = itemRecord.read(std::string(LonFieldName));
-        const auto latValue = itemRecord.read(std::string(LatFieldName));
-        const auto timestampValue = itemRecord.read(std::string(TimestampFieldName));
-
-        auto lon = lonValue.cast<nautilus::val<double>>();
-        auto lat = latValue.cast<nautilus::val<double>>();
-        auto timestamp = timestampValue.cast<nautilus::val<int64_t>>();
-        trajectoryStr = nautilus::invoke(
-            +[](char* buffer,
-                double lonVal,
-                double latVal,
-                int64_t tsVal,
-                int64_t counter,
-                MonotonicTimeState* state) -> char* {
-                if (counter > 0) {
-                    strcat(buffer, ", ");
-                }
-
-                long long adjustedTime;
-                if (tsVal > 1000000000000LL) {
-                    adjustedTime = tsVal / 1000;
-                } else {
-                    adjustedTime = tsVal;
-                }
-
-                if (!state->initialized) {
-                    state->initialized = true;
-                    state->lastTime = adjustedTime;
-                } else {
-                    if (adjustedTime <= state->lastTime) {
-                        adjustedTime = state->lastTime + 1;
-                    }
-                    state->lastTime = adjustedTime;
-                }
-
-                std::string timestampString =
-                    MEOS::Meos::convertSecondsToTimestamp(adjustedTime);
-                const char* timestampStr = timestampString.c_str();
-
-                char pointStr[120];
-                std::snprintf(pointStr,
-                              sizeof(pointStr),
-                              "Point(%.6f %.6f)@%s",
-                              lonVal,
-                              latVal,
-                              timestampStr);
-                strcat(buffer, pointStr);
-                return buffer;
-            },
-            trajectoryStr,
-            lon,
-            lat,
-            timestamp,
-            pointCounter,
-            timeStatePtr);
-
-        pointCounter = pointCounter + nautilus::val<int64_t>(1);
+    if (!lonIndexOpt.has_value() || !latIndexOpt.has_value() || !tsIndexOpt.has_value())
+    {
+        throw UnknownOperation("Trajectory fields not found in aggregation state schema.");
     }
 
-    trajectoryStr = nautilus::invoke(
-        +[](char* buffer, int64_t) -> char* {
-            strcat(buffer, "}");
-            return buffer;
+    auto trajectoryStr = nautilus::invoke(
+        +[](const Nautilus::Interface::PagedVector* pagedVector,
+            const MemoryLayout* layout,
+            uint64_t lonFieldIndex,
+            uint64_t latFieldIndex,
+            uint64_t tsFieldIndex) -> char*
+        {
+            return MeosTrajectoryDetail::buildSortedTemporalInstantSetString(
+                pagedVector,
+                layout,
+                MeosTrajectoryDetail::TrajectoryFieldIndices{
+                    lonFieldIndex,
+                    latFieldIndex,
+                    tsFieldIndex,
+                });
         },
-        trajectoryStr,
-        pointCounter);
+        pagedVectorPtr,
+        nautilus::val<const MemoryLayout*>(memoryLayoutPtr),
+        nautilus::val<uint64_t>(lonIndexOpt.value()),
+        nautilus::val<uint64_t>(latIndexOpt.value()),
+        nautilus::val<uint64_t>(tsIndexOpt.value()));
 
     auto binarySize = nautilus::invoke(
         +[](const char* trajStr,
