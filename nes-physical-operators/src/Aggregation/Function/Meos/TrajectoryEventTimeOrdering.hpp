@@ -11,6 +11,7 @@
 #include <ctime>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -33,14 +34,21 @@ struct TrajectoryFieldIndices
 namespace detail
 {
 template <typename T>
-T readUnaligned(const std::byte* base, uint64_t offset)
+T readUnalignedChecked(std::span<const std::byte> mem, uint64_t offset)
 {
+    if (offset + sizeof(T) > mem.size())
+    {
+        throw UnknownOperation("Attempted to read beyond TupleBuffer bounds while building trajectory.");
+    }
     T value{};
-    std::memcpy(&value, base + offset, sizeof(T));
+    std::memcpy(&value, mem.data() + offset, sizeof(T));
     return value;
 }
 
-inline double readFloating(const MemoryLayout* layout, uint64_t tupleIndex, uint64_t fieldIndex, const std::byte* tupleBufferBase)
+inline double readFloating(const MemoryLayout* layout,
+                           uint64_t tupleIndex,
+                           uint64_t fieldIndex,
+                           std::span<const std::byte> tupleBufferMem)
 {
     const auto fieldType = layout->getPhysicalType(fieldIndex).type;
     const auto offset = layout->getFieldOffset(tupleIndex, fieldIndex);
@@ -48,15 +56,18 @@ inline double readFloating(const MemoryLayout* layout, uint64_t tupleIndex, uint
     switch (fieldType)
     {
         case DataType::Type::FLOAT32:
-            return static_cast<double>(readUnaligned<float>(tupleBufferBase, offset));
+            return static_cast<double>(readUnalignedChecked<float>(tupleBufferMem, offset));
         case DataType::Type::FLOAT64:
-            return readUnaligned<double>(tupleBufferBase, offset);
+            return readUnalignedChecked<double>(tupleBufferMem, offset);
         default:
             throw UnknownOperation("Unsupported floating-point field type for trajectory.");
     }
 }
 
-inline int64_t readIntLike(const MemoryLayout* layout, uint64_t tupleIndex, uint64_t fieldIndex, const std::byte* tupleBufferBase)
+inline int64_t readIntLike(const MemoryLayout* layout,
+                           uint64_t tupleIndex,
+                           uint64_t fieldIndex,
+                           std::span<const std::byte> tupleBufferMem)
 {
     const auto fieldType = layout->getPhysicalType(fieldIndex).type;
     const auto offset = layout->getFieldOffset(tupleIndex, fieldIndex);
@@ -64,21 +75,21 @@ inline int64_t readIntLike(const MemoryLayout* layout, uint64_t tupleIndex, uint
     switch (fieldType)
     {
         case DataType::Type::INT8:
-            return static_cast<int64_t>(readUnaligned<int8_t>(tupleBufferBase, offset));
+            return static_cast<int64_t>(readUnalignedChecked<int8_t>(tupleBufferMem, offset));
         case DataType::Type::INT16:
-            return static_cast<int64_t>(readUnaligned<int16_t>(tupleBufferBase, offset));
+            return static_cast<int64_t>(readUnalignedChecked<int16_t>(tupleBufferMem, offset));
         case DataType::Type::INT32:
-            return static_cast<int64_t>(readUnaligned<int32_t>(tupleBufferBase, offset));
+            return static_cast<int64_t>(readUnalignedChecked<int32_t>(tupleBufferMem, offset));
         case DataType::Type::INT64:
-            return static_cast<int64_t>(readUnaligned<int64_t>(tupleBufferBase, offset));
+            return static_cast<int64_t>(readUnalignedChecked<int64_t>(tupleBufferMem, offset));
         case DataType::Type::UINT8:
-            return static_cast<int64_t>(readUnaligned<uint8_t>(tupleBufferBase, offset));
+            return static_cast<int64_t>(readUnalignedChecked<uint8_t>(tupleBufferMem, offset));
         case DataType::Type::UINT16:
-            return static_cast<int64_t>(readUnaligned<uint16_t>(tupleBufferBase, offset));
+            return static_cast<int64_t>(readUnalignedChecked<uint16_t>(tupleBufferMem, offset));
         case DataType::Type::UINT32:
-            return static_cast<int64_t>(readUnaligned<uint32_t>(tupleBufferBase, offset));
+            return static_cast<int64_t>(readUnalignedChecked<uint32_t>(tupleBufferMem, offset));
         case DataType::Type::UINT64:
-            return static_cast<int64_t>(readUnaligned<uint64_t>(tupleBufferBase, offset));
+            return static_cast<int64_t>(readUnalignedChecked<uint64_t>(tupleBufferMem, offset));
         default:
             throw UnknownOperation("Unsupported integer field type for trajectory timestamp.");
     }
@@ -122,9 +133,15 @@ inline std::string formatUtcTimestampFromMicros(int64_t epochMicros)
 
     std::tm utcTm{};
 #if defined(_WIN32)
-    gmtime_s(&utcTm, &time);
+    if (gmtime_s(&utcTm, &time) != 0)
+    {
+        return "1970-01-01 00:00:00.000000+00";
+    }
 #else
-    gmtime_r(&time, &utcTm);
+    if (gmtime_r(&time, &utcTm) == nullptr)
+    {
+        return "1970-01-01 00:00:00.000000+00";
+    }
 #endif
 
     std::array<char, 64> buffer{};
@@ -170,11 +187,11 @@ inline char* buildSortedTemporalInstantSetString(const Nautilus::Interface::Page
         }
 
         const auto tupleIndex = posOnPageOpt.value();
-        const auto tupleBufferBase = tupleBuffer->getAvailableMemoryArea<std::byte>().data();
+        const auto tupleBufferMem = tupleBuffer->getAvailableMemoryArea<std::byte>();
 
-        const auto lon = detail::readFloating(layout, tupleIndex, fieldIndices.lonFieldIndex, tupleBufferBase);
-        const auto lat = detail::readFloating(layout, tupleIndex, fieldIndices.latFieldIndex, tupleBufferBase);
-        const auto tsRaw = detail::readIntLike(layout, tupleIndex, fieldIndices.tsFieldIndex, tupleBufferBase);
+        const auto lon = detail::readFloating(layout, tupleIndex, fieldIndices.lonFieldIndex, tupleBufferMem);
+        const auto lat = detail::readFloating(layout, tupleIndex, fieldIndices.latFieldIndex, tupleBufferMem);
+        const auto tsRaw = detail::readIntLike(layout, tupleIndex, fieldIndices.tsFieldIndex, tupleBufferMem);
 
         points.push_back(Point{
             detail::normalizeEpochToMicros(tsRaw),

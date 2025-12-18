@@ -14,18 +14,19 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
 
 #include <DataTypes/Schema.hpp>
 #include <MemoryLayout/RowLayout.hpp>
-#include <Nautilus/Interface/BufferRef/RowTupleBufferRef.hpp>
 #include <Nautilus/Interface/PagedVector/PagedVector.hpp>
-#include <Nautilus/Interface/PagedVector/PagedVectorRef.hpp>
-#include <Nautilus/Interface/Record.hpp>
 #include <Runtime/AbstractBufferProvider.hpp>
 #include <Runtime/BufferManager.hpp>
+#include <Util/Logger/LogLevel.hpp>
+#include <Util/Logger/Logger.hpp>
+#include <Util/Logger/impl/NesLogger.hpp>
 #include <nautilus/val.hpp>
 #include <gtest/gtest.h>
 #include <BaseUnitTest.hpp>
@@ -38,13 +39,17 @@ namespace NES
 class TrajectoryEventTimeOrderingTest : public Testing::BaseUnitTest
 {
 public:
+    static void SetUpTestSuite()
+    {
+        Logger::setupLogging("TrajectoryEventTimeOrderingTest.log", LogLevel::LOG_DEBUG);
+    }
+
     void SetUp() override { BaseUnitTest::SetUp(); }
 };
 
 TEST_F(TrajectoryEventTimeOrderingTest, SortsByEventTimeAndStabilizesTies)
 {
     using Nautilus::Interface::PagedVector;
-    using Nautilus::Interface::PagedVectorRef;
 
     auto schema = Schema{}
                       .addField("lon", DataType::Type::FLOAT64)
@@ -52,12 +57,9 @@ TEST_F(TrajectoryEventTimeOrderingTest, SortsByEventTimeAndStabilizesTies)
                       .addField("timestamp", DataType::Type::UINT64);
 
     auto layout = std::make_shared<RowLayout>(4096, schema);
-    auto bufferRef = std::make_shared<Nautilus::Interface::BufferRef::RowTupleBufferRef>(layout);
     auto bufferManager = BufferManager::create(4096, 16);
 
     PagedVector pagedVector;
-    PagedVectorRef pagedVectorRef(nautilus::val<PagedVector*>(&pagedVector), bufferRef);
-    auto provider = nautilus::val<AbstractBufferProvider*>(bufferManager.get());
 
     // Insert out-of-order by event time (milliseconds since epoch).
     // Use realistic 13-digit millisecond epoch values so the normalization logic treats them as milliseconds.
@@ -65,18 +67,35 @@ TEST_F(TrajectoryEventTimeOrderingTest, SortsByEventTimeAndStabilizesTies)
     // Expected event-time order:
     //   base, base (tie stabilized but forced strictly increasing by +1 micro), base+1500ms, base+2000ms
     constexpr uint64_t baseMs = 1700000000000ULL;
-    pagedVectorRef.writeRecord(
-        Nautilus::Record({{"lon", Nautilus::VarVal(1.0)}, {"lat", Nautilus::VarVal(1.0)}, {"timestamp", Nautilus::VarVal(uint64_t(baseMs + 2000ULL))}}),
-        provider);
-    pagedVectorRef.writeRecord(
-        Nautilus::Record({{"lon", Nautilus::VarVal(2.0)}, {"lat", Nautilus::VarVal(2.0)}, {"timestamp", Nautilus::VarVal(uint64_t(baseMs))}}),
-        provider);
-    pagedVectorRef.writeRecord(
-        Nautilus::Record({{"lon", Nautilus::VarVal(3.0)}, {"lat", Nautilus::VarVal(3.0)}, {"timestamp", Nautilus::VarVal(uint64_t(baseMs))}}),
-        provider);
-    pagedVectorRef.writeRecord(
-        Nautilus::Record({{"lon", Nautilus::VarVal(4.0)}, {"lat", Nautilus::VarVal(4.0)}, {"timestamp", Nautilus::VarVal(uint64_t(baseMs + 1500ULL))}}),
-        provider);
+
+    auto appendRowRecord = [&](double lon, double lat, uint64_t timestampMs)
+    {
+        pagedVector.appendPageIfFull(bufferManager.get(), layout.get());
+        const auto& page = pagedVector.getLastPage();
+        const auto recordIndex = page.getNumberOfTuples();
+
+        auto mem = page.getAvailableMemoryArea<std::byte>();
+        auto* basePtr = const_cast<std::byte*>(mem.data());
+
+        const auto lonIdx = layout->getFieldIndexFromName("lon").value();
+        const auto latIdx = layout->getFieldIndexFromName("lat").value();
+        const auto tsIdx = layout->getFieldIndexFromName("timestamp").value();
+
+        const auto lonOff = layout->getFieldOffset(recordIndex, lonIdx);
+        const auto latOff = layout->getFieldOffset(recordIndex, latIdx);
+        const auto tsOff = layout->getFieldOffset(recordIndex, tsIdx);
+
+        std::memcpy(basePtr + lonOff, &lon, sizeof(double));
+        std::memcpy(basePtr + latOff, &lat, sizeof(double));
+        std::memcpy(basePtr + tsOff, &timestampMs, sizeof(uint64_t));
+
+        page.setNumberOfTuples(recordIndex + 1);
+    };
+
+    appendRowRecord(1.0, 1.0, baseMs + 2000ULL);
+    appendRowRecord(2.0, 2.0, baseMs);
+    appendRowRecord(3.0, 3.0, baseMs);
+    appendRowRecord(4.0, 4.0, baseMs + 1500ULL);
 
     const auto lonIdx = layout->getFieldIndexFromName("lon");
     const auto latIdx = layout->getFieldIndexFromName("lat");
