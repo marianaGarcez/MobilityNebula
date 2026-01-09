@@ -1,5 +1,7 @@
 #include <Functions/Meos/TemporalAtStBoxPhysicalFunction.hpp>
 
+#include <Functions/Meos/GeoFunctionMetrics.hpp>
+#include <Functions/Meos/GeoOperatorMetrics.hpp>
 #include <Functions/PhysicalFunction.hpp>
 #include <MEOSWrapper.hpp>
 #include <Nautilus/DataTypes/VarVal.hpp>
@@ -10,8 +12,6 @@
 #include <ExecutionContext.hpp>
 #include <fmt/format.h>
 #include <function.hpp>
-#include <cctype>
-#include <iostream>
 #include <string>
 #include <utility>
 #include <val.hpp>
@@ -73,6 +73,8 @@ VarVal TemporalAtStBoxPhysicalFunction::execute(const Record& record, ArenaRef& 
             const char* stboxPtr,
             uint32_t stboxSize,
             bool borderInclusiveFlag) -> int {
+            GeoOperatorTimingScope op_timing(GeoFunctionId::TGeoAtStbox);
+            GeoFunctionTimingScope timing(GeoFunctionId::TGeoAtStbox);
             try
             {
                 MEOS::Meos::ensureMeosInitialized();

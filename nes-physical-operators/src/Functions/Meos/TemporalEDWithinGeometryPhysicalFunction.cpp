@@ -1,5 +1,6 @@
 #include <Functions/Meos/TemporalEDWithinGeometryPhysicalFunction.hpp>
 
+#include <Functions/Meos/GeoFunctionMetrics.hpp>
 #include <Functions/PhysicalFunction.hpp>
 #include <MEOSWrapper.hpp>
 #include <Nautilus/DataTypes/VarVal.hpp>
@@ -53,6 +54,7 @@ VarVal TemporalEDWithinGeometryPhysicalFunction::execute(const Record& record, A
             const char* geometryPtr,
             uint32_t geometrySize,
             double distanceValue) -> int {
+            GeoFunctionTimingScope timing(GeoFunctionId::EDWithinTGeoGeo);
             try
             {
                 MEOS::Meos::ensureMeosInitialized();

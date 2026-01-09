@@ -3,6 +3,7 @@
 #include <string>
 #include <cstring>
 #include <Functions/Meos/TemporalIntersectsGeometryPhysicalFunction.hpp>
+#include <Functions/Meos/GeoFunctionMetrics.hpp>
 #include <Functions/PhysicalFunction.hpp>
 #include <Nautilus/DataTypes/VarVal.hpp>
 #include <Nautilus/DataTypes/VariableSizedData.hpp>
@@ -56,10 +57,10 @@ VarVal TemporalIntersectsGeometryPhysicalFunction::execute(const Record& record,
     if (isTemporal6Param) {
         // 6-parameter case: temporal-temporal intersection
         return executeTemporal6Param(parameterValues);
-    } else {
-        // 4-parameter case: temporal-static intersection
-        return executeTemporal4Param(parameterValues);
     }
+
+    // 4-parameter case: temporal-static intersection
+    return executeTemporal4Param(parameterValues);
 }
 
 VarVal TemporalIntersectsGeometryPhysicalFunction::executeTemporal6Param(const std::vector<VarVal>& params) const
@@ -77,6 +78,7 @@ VarVal TemporalIntersectsGeometryPhysicalFunction::executeTemporal6Param(const s
     // Use nautilus::invoke to call external MEOS function with coordinate parameters
     const auto result = nautilus::invoke(
         +[](double lon1_val, double lat1_val, uint64_t ts1_val, double lon2_val, double lat2_val, uint64_t ts2_val) -> int {
+            GeoFunctionTimingScope timing(GeoFunctionId::TemporalIntersects);
             try {
                 // Use the existing global MEOS initialization mechanism
                 MEOS::Meos::ensureMeosInitialized();
@@ -142,6 +144,7 @@ VarVal TemporalIntersectsGeometryPhysicalFunction::executeTemporal4Param(const s
     // Call MEOS: eintersects_tgeo_geo(temporal, static)
     const auto result = nautilus::invoke(
         +[](double lon1_val, double lat1_val, uint64_t ts1_val, const char* static_geom_ptr, uint32_t static_geom_size) -> int {
+            GeoFunctionTimingScope timing(GeoFunctionId::TemporalEIntersectsGeometry);
             try {
                 MEOS::Meos::ensureMeosInitialized();
                 if (!(lon1_val >= -180.0 && lon1_val <= 180.0 && lat1_val >= -90.0 && lat1_val <= 90.0)) {

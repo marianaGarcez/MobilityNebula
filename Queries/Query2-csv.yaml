@@ -15,7 +15,7 @@ query: |
                                           gps_lat,
                                           time_utc,
                                           'SRID=4326;POLYGON((4.0 50.0, 4.0 50.8, 4.6 50.8, 4.6 50.0, 4.0 50.0))') = INT32(0)
-      WINDOW SLIDING(time_utc, SIZE 10 SEC, ADVANCE BY 10 MS) 
+      WINDOW SLIDING(time_utc, SIZE 10 SEC, ADVANCE BY 10 MS)
   )
   WHERE (varBP > FLOAT64(0.1))
     AND (varFF <= FLOAT64(10))
@@ -54,14 +54,10 @@ logical:
 
 physical:
   - logical: SNCB_STREAM
-    type: TCP
+    type: File
     parser_config:
       type: CSV
       field_delimiter: ","
       tuple_delimiter: "\n"
     source_config:
-      socket_host: "host.docker.internal"
-      socket_port: "32323"
-      socket_type: "SOCK_STREAM"
-      socket_domain: "AF_INET"
-      connect_timeout_seconds: "120"
+      file_path: "/workspace/Input/input_sncb.csv"

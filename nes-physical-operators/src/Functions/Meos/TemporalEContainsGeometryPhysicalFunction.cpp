@@ -1,4 +1,5 @@
 #include <Functions/Meos/TemporalEContainsGeometryPhysicalFunction.hpp>
+#include <Functions/Meos/GeoFunctionMetrics.hpp>
 #include <PhysicalFunctionRegistry.hpp>
 #include <MEOSWrapper.hpp>
 #include <fmt/format.h>
@@ -75,6 +76,7 @@ TemporalEContainsGeometryPhysicalFunction::execTemporalTemporal(const std::vecto
 
     const auto res = nautilus::invoke(
         +[](double lo1,double la1,uint64_t t1, double lo2, double la2, uint64_t t2) -> int {
+            GeoFunctionTimingScope timing(GeoFunctionId::TemporalEContainsGeometry);
             try {
                 MEOS::Meos::ensureMeosInitialized();
                 auto inRange = [](double lo, double la){ return lo >= -180.0 && lo <= 180.0 && la >= -90.0 && la <= 90.0; };
@@ -112,6 +114,7 @@ TemporalEContainsGeometryPhysicalFunction::execTemporalStatic(const std::vector<
 
     const auto res = nautilus::invoke(
         +[](double lo,double la,uint64_t t, const char* g, uint32_t sz) -> int {
+            GeoFunctionTimingScope timing(GeoFunctionId::TemporalEContainsGeometry);
             try {
                 MEOS::Meos::ensureMeosInitialized();
                 if (!(lo >= -180.0 && lo <= 180.0 && la >= -90.0 && la <= 90.0)) {
@@ -175,6 +178,7 @@ TemporalEContainsGeometryPhysicalFunction::execStaticTemporal(const std::vector<
 
     const auto res = nautilus::invoke(
         +[](const char* g,uint32_t sz, double lo,double la,uint64_t t) -> int {
+            GeoFunctionTimingScope timing(GeoFunctionId::TemporalEContainsGeometry);
             try {
                 MEOS::Meos::ensureMeosInitialized();
                 if (!(lo >= -180.0 && lo <= 180.0 && la >= -90.0 && la <= 90.0)) {

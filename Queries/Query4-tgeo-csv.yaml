@@ -1,28 +1,25 @@
 query: |
   SELECT start,
-          end,
-          COUNT(time_utc) AS cnt
+         end,
+         TEMPORAL_SEQUENCE(gps_lon, gps_lat, time_utc) AS trajectory
   FROM sncb_stream
-  WHERE edwithin_tgeo_geo(gps_lon,
-                          gps_lat,
-                          time_utc,
-                          'SRID=4326;POINT(4.3658 50.6456)',
-                          FLOAT64(2.0)) = INT32(1)
-  WINDOW TUMBLING(time_utc, SIZE 10 SEC)
-  INTO BRAKE_ALERTS_STREAM;
+  WHERE tgeo_at_stbox(gps_lon,
+                      gps_lat,
+                      time_utc,
+                      'SRID=4326;STBOX XT(((4.0,50.0),(4.6,50.8)),[2024-08-01 00:00:00+00, 2025-08-01 00:00:00+00])') = INT32(1)
+  WINDOW SLIDING(time_utc, SIZE 10 SEC, ADVANCE BY 10 MS)
+  INTO file_sink;
 
 sinks:
-  - name: BRAKE_ALERTS_STREAM
-    type: MQTT
+  - name: FILE_SINK
+    type: File
     schema:
-      - { name: SNCB_STREAM$START, type: UINT64 }
-      - { name: SNCB_STREAM$END,   type: UINT64 }
-      - { name: SNCB_STREAM$CNT,   type: UINT64 }
+      - { name: SNCB_STREAM$START,     type: UINT64 }
+      - { name: SNCB_STREAM$END,       type: UINT64 }
+      - { name: SNCB_STREAM$TRAJECTORY, type: VARSIZED }
     config:
-      serverURI: "tcp://host.docker.internal:1884"
-      clientId: "brake_alerts_${START_TIME_EPOCH}"
-      topic: "train/brake/alerts"
-      qos: "0"
+      file_path: "/workspace/Output/output_query4.csv"
+      input_format: CSV
 
 logical:
   - name: SNCB_STREAM
@@ -44,13 +41,10 @@ logical:
 
 physical:
   - logical: SNCB_STREAM
-    type: TCP
+    type: File
     parser_config:
       type: CSV
       field_delimiter: ","
       tuple_delimiter: "\n"
     source_config:
-      socket_host: "host.docker.internal"
-      socket_port: "32323"
-      socket_type: "SOCK_STREAM"
-      socket_domain: "AF_INET"
+      file_path: "/workspace/Input/input_sncb.csv"

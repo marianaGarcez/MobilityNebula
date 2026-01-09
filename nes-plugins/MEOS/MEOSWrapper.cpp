@@ -18,7 +18,6 @@
 #include <ctime>
 #include <iomanip>
 #include <sstream>
-#include <iostream>
 #include <cstdlib>
 #include <mutex>
 #include <filesystem>
@@ -26,8 +25,6 @@
 
 // Include MEOS wrapper after standard headers
 #include <MEOSWrapper.hpp>
-
-
 
 namespace MEOS {
 
@@ -141,8 +138,6 @@ namespace MEOS {
         std::string ts_string = Meos::convertSecondsToTimestamp(ts);
         std::string str_pointbuffer = "SRID=" + std::to_string(srid) + ";POINT(" + std::to_string(lon) + " " + std::to_string(lat) + ")@" + ts_string;
 
-        std::cout << "Creating MEOS TemporalInstant from: " << str_pointbuffer << std::endl;
-
         Temporal *temp = nullptr;
         {
             std::lock_guard<std::mutex> lk(meos_parse_mutex);
@@ -150,12 +145,10 @@ namespace MEOS {
         }
 
         if (temp == nullptr) {
-            std::cout << "Failed to parse temporal point with temporal_from_text" << std::endl;
             // Try alternative format or set to null
             instant = nullptr;
         } else {
             instant = temp;
-            std::cout << "Successfully created temporal point" << std::endl;
         }
     }
 
@@ -167,22 +160,14 @@ namespace MEOS {
     }
 
     bool Meos::TemporalInstant::intersects(const TemporalInstant& point) const {  
-        std::cout << "TemporalInstant::intersects called" << std::endl;
         // Use MEOS eintersects function for temporal points  - this will change 
-        bool result = eintersects_tgeo_tgeo((const Temporal *)this->instant, (const Temporal *)point.instant);
-        if (result) {
-            std::cout << "TemporalInstant intersects" << std::endl;
-        }
-
-        return result;
+        return eintersects_tgeo_tgeo((const Temporal *)this->instant, (const Temporal *)point.instant);
     }
 
 
     Meos::TemporalGeometry::TemporalGeometry(const std::string& wkt_string){
 
         ensureMeosInitialized();
-
-        std::cout << "Creating MEOS TemporalGeometry from: " << wkt_string << std::endl;
 
         // Try temporal point parser first
         Temporal *temp = nullptr;
@@ -211,11 +196,9 @@ namespace MEOS {
         }
 
         if (temp == nullptr) {
-            std::cout << "Failed to parse temporal geometry (tgeompoint_in/tgeometry_in)" << std::endl;
             geometry = nullptr;
         } else {
             geometry = temp;
-            std::cout << "Successfully created temporal geometry" << std::endl;
         }
 
     }
@@ -230,13 +213,11 @@ namespace MEOS {
     }
 
     int Meos::TemporalGeometry::intersects(const TemporalGeometry& geom) const{
-        std::cout << "TemporalGeometry::intersects called" << std::endl;        
         int result = eintersects_tgeo_tgeo((const Temporal *)this->geometry, (const Temporal *)geom.geometry);
         return result;
     }
 
     int Meos::TemporalGeometry::contains(const TemporalGeometry& geom) const{
-        std::cout << "TemporalGeometry::contains called" << std::endl;        
         int result = econtains_tgeo_tgeo((const Temporal *)this->geometry, (const Temporal *)geom.geometry);
         return result;
     }
@@ -245,18 +226,10 @@ namespace MEOS {
     Meos::StaticGeometry::StaticGeometry(const std::string& wkt_string) {
         ensureMeosInitialized();
 
-        std::cout << "Creating MEOS StaticGeometry from: " << wkt_string << std::endl;
-
         // Use geom_in to parse static WKT geometry (no temporal component)
         {
             std::lock_guard<std::mutex> lk(meos_parse_mutex);
             geometry = geom_in(wkt_string.c_str(), -1);
-        }
-
-        if (geometry == nullptr) {
-            std::cout << "Failed to parse static geometry" << std::endl;
-        } else {
-            std::cout << "Successfully created static geometry" << std::endl;
         }
     }
 
@@ -270,8 +243,6 @@ namespace MEOS {
     }
 
     int Meos::TemporalGeometry::intersectsStatic(const StaticGeometry& static_geom) const {
-        std::cout << "TemporalGeometry::intersectsStatic called" << std::endl;
-        
         // Use eintersects_tgeo_geo for temporal-static intersection
         int result = eintersects_tgeo_geo((const Temporal*)this->geometry, static_geom.getGeometry());
 
@@ -279,14 +250,11 @@ namespace MEOS {
     }
 
     int Meos::TemporalGeometry::aintersects(const TemporalGeometry& geom) const{
-        std::cout << "TemporalGeometry::aintersects called" << std::endl;        
         int result = aintersects_tgeo_tgeo((const Temporal *)this->geometry, (const Temporal *)geom.geometry);
         return result;
     }   
 
     int Meos::TemporalGeometry::aintersectsStatic(const StaticGeometry& static_geom) const {
-        std::cout << "TemporalGeometry::aintersectsStatic called" << std::endl;
-        
         // Use aintersects_tgeo_geo for temporal-static intersection
         int result = aintersects_tgeo_geo((const Temporal*)this->geometry, static_geom.getGeometry());
 
@@ -295,33 +263,17 @@ namespace MEOS {
 
     // called if static geometry is the first parameter
     int Meos::StaticGeometry::containsTemporal(const TemporalGeometry& temporal_geom) const {
-        std::cout << "StaticGeometry::containsTemporal called" << std::endl;
-        int result = econtains_geo_tgeo((const GSERIALIZED*)this->geometry, (const Temporal *)temporal_geom.getGeometry());
-        if (result==1) {
-            std::cout << "StaticGeometry contains TemporalGeometry" << std::endl;
-        }
-        else {
-            std::cout << "StaticGeometry does NOT contain TemporalGeometry" << std::endl;
-        }
-        return result;
+        return econtains_geo_tgeo((const GSERIALIZED*)this->geometry, (const Temporal *)temporal_geom.getGeometry());
     }
 
     // called if temporal geometry is the first parameter
     int Meos::TemporalGeometry::containsStatic(const StaticGeometry& static_geom) const {
-        std::cout << "TemporalGeometry::containsStatic called" << std::endl;
-        int result = econtains_tgeo_geo((const Temporal *)this->geometry, (const GSERIALIZED*)static_geom.getGeometry());
-        if (result==1) {
-            std::cout << "TemporalGeometry contains StaticGeometry" << std::endl;
-        }
-        else {
-            std::cout << "TemporalGeometry does NOT contain StaticGeometry" << std::endl;
-        }
-        return result;
+        return econtains_tgeo_geo((const Temporal *)this->geometry, (const GSERIALIZED*)static_geom.getGeometry());
     }
 
 
     // Constructor for creating a trajectory from multiple temporal instants
-    Meos::TemporalSequence::TemporalSequence(const std::vector<TemporalInstant*>& instants) {
+    Meos::TemporalSequence::TemporalSequence(const std::vector<TemporalInstant*>& /*instants*/) {
         // Ensure MEOS is initialized
         ensureMeosInitialized();
 
@@ -329,7 +281,6 @@ namespace MEOS {
         // TODO:call the aggregation function
         
         //TODO: with the result of the aggregation function, we can create a temporal sequence
-        std::cout << "TemporalSequence created from " << instants.size() << " temporal instants" << std::endl;
     }
    
 
@@ -370,6 +321,11 @@ namespace MEOS {
         // Intentionally no-op; avoid allocator mismatch.
         (void)temporal;
     }
+
+    void Meos::freeMeosPointer(void* ptr) {
+        // Intentionally no-op; avoid allocator mismatch.
+        (void)ptr;
+    }
     
     uint8_t* Meos::temporalToWKB(void* temporal, size_t& size) {
         if (!temporal) {
@@ -402,6 +358,22 @@ namespace MEOS {
     {
         std::lock_guard<std::mutex> lk(meos_exec_mutex);
         return tgeo_at_stbox(temp, box, border_inc);
+    }
+
+    double Meos::safe_nad_tgeo_tgeo(const Temporal* temp1, const Temporal* temp2)
+    {
+        std::lock_guard<std::mutex> lk(meos_exec_mutex);
+        return nad_tgeo_tgeo(temp1, temp2);
+    }
+
+    Temporal* Meos::safe_temporal_ext_kalman_filter(const Temporal* temp,
+                                                    double gate,
+                                                    double q,
+                                                    double variance,
+                                                    bool to_drop)
+    {
+        std::lock_guard<std::mutex> lk(meos_exec_mutex);
+        return temporal_ext_kalman_filter(temp, gate, q, variance, to_drop);
     }
 
     // SpatioTemporalBox implementation

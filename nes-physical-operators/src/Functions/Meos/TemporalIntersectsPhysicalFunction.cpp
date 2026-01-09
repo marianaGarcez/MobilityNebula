@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 #include <Functions/Meos/TemporalIntersectsPhysicalFunction.hpp>
+#include <Functions/Meos/GeoFunctionMetrics.hpp>
 #include <Functions/PhysicalFunction.hpp>
 #include <Nautilus/DataTypes/VarVal.hpp>
 #include <Nautilus/Interface/Record.hpp>
@@ -48,6 +49,7 @@ VarVal TemporalIntersectsPhysicalFunction::execute(const Record& record, ArenaRe
     // Use nautilus::invoke to call external MEOS function with raw values
     const auto result = nautilus::invoke(
         +[](double lon, double lat, double ts) -> bool {
+            GeoFunctionTimingScope timing(GeoFunctionId::TemporalIntersects);
             try {
                 // Ensure MEOS is initialized but don't create a Meos object that will finalize it
                 static MEOS::Meos* meos_instance = nullptr;

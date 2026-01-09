@@ -3,6 +3,7 @@
 #include <string>
 #include <cstring>
 #include <Functions/Meos/TemporalAIntersectsGeometryPhysicalFunction.hpp>
+#include <Functions/Meos/GeoFunctionMetrics.hpp>
 #include <Functions/PhysicalFunction.hpp>
 #include <Nautilus/DataTypes/VarVal.hpp>
 #include <Nautilus/DataTypes/VariableSizedData.hpp>
@@ -77,6 +78,7 @@ VarVal TemporalAIntersectsGeometryPhysicalFunction::executeTemporal6Param(const 
     // Use nautilus::invoke to call external MEOS function with coordinate parameters
     const auto result = nautilus::invoke(
         +[](double lon1_val, double lat1_val, uint64_t ts1_val, double lon2_val, double lat2_val, uint64_t ts2_val) -> int {
+            GeoFunctionTimingScope timing(GeoFunctionId::TemporalAIntersectsGeometry);
             try {
                 // Use the existing global MEOS initialization mechanism
                 MEOS::Meos::ensureMeosInitialized();
@@ -141,6 +143,7 @@ VarVal TemporalAIntersectsGeometryPhysicalFunction::executeTemporal4Param(const 
     // Use nautilus::invoke to call external MEOS function with coordinate and geometry parameters
     const auto result = nautilus::invoke(
         +[](double lon1_val, double lat1_val, uint64_t ts1_val, const char* static_geom_ptr, uint32_t static_geom_size) -> int {
+            GeoFunctionTimingScope timing(GeoFunctionId::TemporalAIntersectsGeometry);
             try {
                 // Use the existing global MEOS initialization mechanism
                 MEOS::Meos::ensureMeosInitialized();

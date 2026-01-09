@@ -12,10 +12,11 @@ query: |
                           'SRID=4326;POLYGON((4.32 50.60, 4.32 50.72, 4.48 50.72, 4.48 50.60, 4.32 50.60))',
                           FLOAT64(2.0)) = INT32(1)
   GROUP BY device_id
-  WINDOW SLIDING(time_utc, SIZE 45 SEC, ADVANCE BY 5 SEC)
+  WINDOW SLIDING(time_utc, SIZE 15 SEC, ADVANCE BY 5 SEC)
   HAVING (avg_speed < FLOAT64(300.0))
       OR (min_speed < FLOAT64(120.0))
-  INTO file_sink;
+  INTO file_sink,
+       mqtt_sink;
 
 sinks:
   - name: FILE_SINK
@@ -28,8 +29,22 @@ sinks:
       - { name: SNCB_STREAM$AVG_SPEED,  type: FLOAT64 }
       - { name: SNCB_STREAM$MIN_SPEED,  type: FLOAT64 }
     config:
-      file_path: "/workspace/Output/output_query5.csv"
+      file_path: "/workspace/Output/output_query5_mqtt.csv"
       input_format: CSV
+
+  - name: MQTT_SINK
+    type: MQTT
+    schema:
+      - { name: SNCB_STREAM$DEVICE_ID,  type: UINT64 }
+      - { name: SNCB_STREAM$START,      type: UINT64 }
+      - { name: SNCB_STREAM$END,        type: UINT64 }
+      - { name: SNCB_STREAM$AVG_SPEED,  type: FLOAT64 }
+      - { name: SNCB_STREAM$MIN_SPEED,  type: FLOAT64 }
+    config:
+      serverURI: "tcp://mosquitto:1883"
+      clientId: "query5_mqtt_${START_TIME_EPOCH}"
+      topic: "sncb/query5/alerts"
+      qos: "0"
 
 logical:
   - name: SNCB_STREAM
@@ -58,7 +73,6 @@ physical:
       tuple_delimiter: "\n"
     source_config:
       socket_host: "host.docker.internal"
-      socket_port: "32323"
+      socket_port: "32324"
       socket_type: "SOCK_STREAM"
       socket_domain: "AF_INET"
-      connect_timeout_seconds: "120"

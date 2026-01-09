@@ -1,28 +1,35 @@
 query: |
-  SELECT start,
-          end,
-          COUNT(time_utc) AS cnt
+  SELECT device_id,
+         start,
+         end,
+         TEMPORAL_SEQUENCE(gps_lon, gps_lat, time_utc) AS trajectory,
+         AVG(gps_speed) AS avg_speed,
+         MIN(gps_speed) AS min_speed
   FROM sncb_stream
   WHERE edwithin_tgeo_geo(gps_lon,
                           gps_lat,
                           time_utc,
-                          'SRID=4326;POINT(4.3658 50.6456)',
+                          'SRID=4326;POLYGON((4.32 50.60, 4.32 50.72, 4.48 50.72, 4.48 50.60, 4.32 50.60))',
                           FLOAT64(2.0)) = INT32(1)
-  WINDOW TUMBLING(time_utc, SIZE 10 SEC)
-  INTO BRAKE_ALERTS_STREAM;
+  GROUP BY device_id
+  WINDOW SLIDING(time_utc, SIZE 15 SEC, ADVANCE BY 5 SEC)
+  HAVING (avg_speed < FLOAT64(300.0))
+      OR (min_speed < FLOAT64(120.0))
+  INTO file_sink;
 
 sinks:
-  - name: BRAKE_ALERTS_STREAM
-    type: MQTT
+  - name: FILE_SINK
+    type: File
     schema:
-      - { name: SNCB_STREAM$START, type: UINT64 }
-      - { name: SNCB_STREAM$END,   type: UINT64 }
-      - { name: SNCB_STREAM$CNT,   type: UINT64 }
+      - { name: SNCB_STREAM$DEVICE_ID,  type: UINT64 }
+      - { name: SNCB_STREAM$START,      type: UINT64 }
+      - { name: SNCB_STREAM$END,        type: UINT64 }
+      - { name: SNCB_STREAM$TRAJECTORY, type: VARSIZED }
+      - { name: SNCB_STREAM$AVG_SPEED,  type: FLOAT64 }
+      - { name: SNCB_STREAM$MIN_SPEED,  type: FLOAT64 }
     config:
-      serverURI: "tcp://host.docker.internal:1884"
-      clientId: "brake_alerts_${START_TIME_EPOCH}"
-      topic: "train/brake/alerts"
-      qos: "0"
+      file_path: "/workspace/Output/output_query5-csv.csv"
+      input_format: CSV
 
 logical:
   - name: SNCB_STREAM
@@ -44,13 +51,10 @@ logical:
 
 physical:
   - logical: SNCB_STREAM
-    type: TCP
+    type: File
     parser_config:
       type: CSV
       field_delimiter: ","
       tuple_delimiter: "\n"
     source_config:
-      socket_host: "host.docker.internal"
-      socket_port: "32323"
-      socket_type: "SOCK_STREAM"
-      socket_domain: "AF_INET"
+      file_path: "/workspace/Input/input_sncb.csv"

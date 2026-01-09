@@ -193,6 +193,12 @@ class Meos {
     static int safe_edwithin_tgeo_geo(const Temporal* temp, const GSERIALIZED* gs, double dist);
     static int safe_eintersects_tgeo_geo(const Temporal* temp, const GSERIALIZED* gs);
     static Temporal* safe_tgeo_at_stbox(const Temporal* temp, const STBox* box, bool border_inc);
+    static double safe_nad_tgeo_tgeo(const Temporal* temp1, const Temporal* temp2);
+    static Temporal* safe_temporal_ext_kalman_filter(const Temporal* temp,
+                                                     double gate,
+                                                     double q,
+                                                     double variance,
+                                                     bool to_drop);
     
     /**
      * @brief Parse a temporal point string into a MEOS Temporal object
@@ -211,9 +217,17 @@ class Meos {
      * @brief Convert a Temporal object to WKB format
      * @param temporal Pointer to Temporal object
      * @param size Output parameter for the size of the WKB data
-     * @return Pointer to WKB data, nullptr on failure. Caller must free the returned pointer.
+     * @return Pointer to WKB data, nullptr on failure. Caller should release it via freeMeosPointer().
      */
     static uint8_t* temporalToWKB(void* temporal, size_t& size);
+
+    /**
+     * @brief Release a pointer returned by MEOS APIs (e.g., temporal_as_wkb / temporal_as_hexwkb).
+     *
+     * MEOS originates from PostgreSQL/MobilityDB and may use different allocators depending on build
+     * configuration. To avoid crashes from allocator mismatches, this is a no-op by default.
+     */
+    static void freeMeosPointer(void* ptr);
     
     /**
      * @brief Ensure MEOS is initialized

@@ -14,6 +14,8 @@
 
 #include <Aggregation/Function/Meos/TemporalSequenceAggregationPhysicalFunction.hpp>
 
+#include <Functions/Meos/GeoFunctionMetrics.hpp>
+#include <Functions/Meos/GeoOperatorMetrics.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -28,8 +30,7 @@
 #include <string>
 
 #include <MemoryLayout/ColumnLayout.hpp>
-#include <Nautilus/Interface/MemoryProvider/ColumnTupleBufferMemoryProvider.hpp>
-#include <Nautilus/Interface/MemoryProvider/TupleBufferMemoryProvider.hpp>
+#include <Nautilus/Interface/BufferRef/TupleBufferRef.hpp>
 #include <Nautilus/Interface/PagedVector/PagedVector.hpp>
 #include <Nautilus/Interface/PagedVector/PagedVectorRef.hpp>
 #include <Nautilus/Interface/Record.hpp>
@@ -47,6 +48,8 @@ extern "C" {
 #include <meos.h>
 }
 
+#include "TrajectoryEventTimeOrdering.hpp"
+
 namespace NES
 {
 
@@ -57,7 +60,6 @@ constexpr static std::string_view TimestampFieldName = "timestamp";
 // Mutex for thread-safe MEOS operations
 static std::mutex meos_mutex;
 
-
 TemporalSequenceAggregationPhysicalFunction::TemporalSequenceAggregationPhysicalFunction(
     DataType inputType,
     DataType resultType,
@@ -65,9 +67,9 @@ TemporalSequenceAggregationPhysicalFunction::TemporalSequenceAggregationPhysical
     PhysicalFunction latFunctionParam,
     PhysicalFunction timestampFunctionParam,
     Nautilus::Record::RecordFieldIdentifier resultFieldIdentifier,
-    std::shared_ptr<Nautilus::Interface::MemoryProvider::TupleBufferMemoryProvider> memProviderPagedVector)
+    std::shared_ptr<Nautilus::Interface::BufferRef::TupleBufferRef> bufferRef)
     : AggregationPhysicalFunction(std::move(inputType), std::move(resultType), lonFunctionParam, std::move(resultFieldIdentifier))
-    , memProviderPagedVector(std::move(memProviderPagedVector))
+    , bufferRef(std::move(bufferRef))
     , lonFunction(std::move(lonFunctionParam))
     , latFunction(std::move(latFunctionParam))
     , timestampFunction(std::move(timestampFunctionParam))
@@ -75,14 +77,15 @@ TemporalSequenceAggregationPhysicalFunction::TemporalSequenceAggregationPhysical
 }
 
 void TemporalSequenceAggregationPhysicalFunction::lift(
-    const nautilus::val<AggregationState*>& aggregationState, ExecutionContext& executionContext, const Nautilus::Record& record)
+    const nautilus::val<AggregationState*>& aggregationState, PipelineMemoryProvider& pipelineMemoryProvider, const Nautilus::Record& record)
 {
+    GeoOperatorTimingScope timing(GeoFunctionId::TemporalSequence);
     const auto pagedVectorPtr = static_cast<nautilus::val<Nautilus::Interface::PagedVector*>>(aggregationState);
 
     // For TEMPORAL_SEQUENCE, we need to store lon, lat, and timestamp values
-    auto lonValue = lonFunction.execute(record, executionContext.pipelineMemoryProvider.arena);
-    auto latValue = latFunction.execute(record, executionContext.pipelineMemoryProvider.arena);
-    auto timestampValue = timestampFunction.execute(record, executionContext.pipelineMemoryProvider.arena);
+    auto lonValue = lonFunction.execute(record, pipelineMemoryProvider.arena);
+    auto latValue = latFunction.execute(record, pipelineMemoryProvider.arena);
+    auto timestampValue = timestampFunction.execute(record, pipelineMemoryProvider.arena);
 
     // Create a record with all three fields for temporal sequence
     Record aggregateStateRecord({
@@ -91,8 +94,8 @@ void TemporalSequenceAggregationPhysicalFunction::lift(
         {std::string(TimestampFieldName), timestampValue}
     });
 
-    const Nautilus::Interface::PagedVectorRef pagedVectorRef(pagedVectorPtr, memProviderPagedVector);
-    pagedVectorRef.writeRecord(aggregateStateRecord, executionContext.pipelineMemoryProvider.bufferProvider);
+    const Nautilus::Interface::PagedVectorRef pagedVectorRef(pagedVectorPtr, bufferRef);
+    pagedVectorRef.writeRecord(aggregateStateRecord, pipelineMemoryProvider.bufferProvider);
 }
 
 void TemporalSequenceAggregationPhysicalFunction::combine(
@@ -107,7 +110,10 @@ void TemporalSequenceAggregationPhysicalFunction::combine(
     // Calling the copyFrom function of the paged vector to combine the two paged vectors by copying the content of the second paged vector to the first paged vector
     nautilus::invoke(
         +[](Nautilus::Interface::PagedVector* vector1, const Nautilus::Interface::PagedVector* vector2) -> void
-        { vector1->copyFrom(*vector2); },
+        {
+            GeoOperatorTimingScope timing(GeoFunctionId::TemporalSequence);
+            vector1->copyFrom(*vector2);
+        },
         memArea1,
         memArea2);
 }
@@ -115,13 +121,14 @@ void TemporalSequenceAggregationPhysicalFunction::combine(
 Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
     const nautilus::val<AggregationState*> aggregationState, PipelineMemoryProvider& pipelineMemoryProvider)
 {
+    GeoOperatorTimingScope timing(GeoFunctionId::TemporalSequence);
     // Ensure MEOS is initialized
     MEOS::Meos::ensureMeosInitialized();
 
     // Getting the paged vector from the aggregation state
     const auto pagedVectorPtr = static_cast<nautilus::val<Nautilus::Interface::PagedVector*>>(aggregationState);
-    const Nautilus::Interface::PagedVectorRef pagedVectorRef(pagedVectorPtr, memProviderPagedVector);
-    const auto allFieldNames = memProviderPagedVector->getMemoryLayout()->getSchema().getFieldNames();
+    const Nautilus::Interface::PagedVectorRef pagedVectorRef(pagedVectorPtr, bufferRef);
+    const auto allFieldNames = bufferRef->getMemoryLayout()->getSchema().getFieldNames();
     const auto numberOfEntries = invoke(
         +[](const Nautilus::Interface::PagedVector* pagedVector)
         {
@@ -150,110 +157,44 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
         return resultRecord;
     }
 
-    // Build the trajectory string in MEOS format for temporal instant set
-    // For single point: Point(-73.9857 40.7484)@2000-01-01 08:00:00
-    // For multiple points: {Point(-73.9857 40.7484)@2000-01-01 08:00:00, Point(-73.9787 40.7505)@2000-01-01 08:05:00}
-    auto trajectoryStr = nautilus::invoke(
-        +[](const Nautilus::Interface::PagedVector* pagedVector) -> char*
-        {
-            // Allocate a buffer for the trajectory string
-            // Each point is approximately 100 chars: Point(-123.456789 12.345678)@2000-01-01 08:00:00
-            // Add extra space to prevent buffer issues
-            size_t bufferSize = pagedVector->getTotalNumberOfEntries() * 150 + 50;
-            char* buffer = (char*)malloc(bufferSize);
+    const auto memoryLayout = bufferRef->getMemoryLayout();
+    const auto* memoryLayoutPtr = memoryLayout.get();
+    const auto lonIndexOpt = memoryLayoutPtr->getFieldIndexFromName(std::string(LonFieldName));
+    const auto latIndexOpt = memoryLayoutPtr->getFieldIndexFromName(std::string(LatFieldName));
+    const auto tsIndexOpt = memoryLayoutPtr->getFieldIndexFromName(std::string(TimestampFieldName));
 
-            // Initialize buffer to zeros to ensure proper null termination
-            memset(buffer, 0, bufferSize);
-
-            // Start with opening brace for temporal instant set
-            strcpy(buffer, "{");
-            return buffer;
-        },
-        pagedVectorPtr);
-
-    // Track if this is the first point using a counter
-    auto pointCounter = nautilus::val<int64_t>(0);
-
-    // Read from paged vector in original order
-    const auto endIt = pagedVectorRef.end(allFieldNames);
-    for (auto candidateIt = pagedVectorRef.begin(allFieldNames); candidateIt != endIt; ++candidateIt)
+    if (!lonIndexOpt.has_value() || !latIndexOpt.has_value() || !tsIndexOpt.has_value())
     {
-        const auto itemRecord = *candidateIt;
-
-        // Read all three fields for temporal sequence
-        const auto lonValue = itemRecord.read(std::string(LonFieldName));
-        const auto latValue = itemRecord.read(std::string(LatFieldName));
-        const auto timestampValue = itemRecord.read(std::string(TimestampFieldName));
-
-        auto lon = lonValue.cast<nautilus::val<double>>();
-        auto lat = latValue.cast<nautilus::val<double>>();
-        auto timestamp = timestampValue.cast<nautilus::val<int64_t>>();
-
-        // Append point to trajectory string in MEOS format
-        trajectoryStr = nautilus::invoke(
-            +[](char* buffer, double lonVal, double latVal, int64_t tsVal, int64_t counter) -> char*
-            {
-                if (counter > 0) {
-                    strcat(buffer, ", ");
-                }
-
-                // Convert timestamp to MEOS format
-                // Determine if timestamp is in seconds or milliseconds
-                long long adjustedTime;
-                if (tsVal > 1000000000000LL) {
-                    // Milliseconds (13+ digits)
-                    adjustedTime = tsVal / 1000;
-                } else {
-                    // Seconds (10 digits or less) - Unix timestamp
-                    adjustedTime = tsVal;
-                }
-
-                // Use MEOS wrapper to convert timestamp
-                std::string timestampString = MEOS::Meos::convertSecondsToTimestamp(adjustedTime);
-                const char* timestampStr = timestampString.c_str();
-
-                char pointStr[120];
-                // Use Point format that MEOS expects: Point(lon lat)@timestamp
-                sprintf(pointStr, "Point(%.6f %.6f)@%s", lonVal, latVal, timestampStr);
-                strcat(buffer, pointStr);
-                return buffer;
-            },
-            trajectoryStr,
-            lon,
-            lat,
-            timestamp,
-            pointCounter);
-
-        pointCounter = pointCounter + nautilus::val<int64_t>(1);
+        throw UnknownOperation("Trajectory fields not found in aggregation state schema.");
     }
 
-    // Close the trajectory string - always use braces for temporal instant sets
-    trajectoryStr = nautilus::invoke(
-        +[](char* buffer, int64_t totalPoints) -> char*
+    auto trajectoryStr = nautilus::invoke(
+        +[](const Nautilus::Interface::PagedVector* pagedVector,
+            const MemoryLayout* layout,
+            uint64_t lonFieldIndex,
+            uint64_t latFieldIndex,
+            uint64_t tsFieldIndex) -> char*
         {
-            // Always close with brace - temporal instant sets require {} even for single points
-            strcat(buffer, "}");
-            if (totalPoints == 1) {
-                printf("DEBUG: Single point trajectory string: %s\n", buffer);
-            } else {
-                printf("DEBUG: Multiple points trajectory string: %s\n", buffer);
-            }
-            return buffer;
+            return MeosTrajectoryDetail::buildSortedTemporalInstantSetString(
+                pagedVector,
+                layout,
+                MeosTrajectoryDetail::TrajectoryFieldIndices{
+                    lonFieldIndex,
+                    latFieldIndex,
+                    tsFieldIndex,
+                });
         },
-        trajectoryStr,
-        pointCounter);
-
-    nautilus::invoke(
-        +[](const char* buffer) -> void
-        {
-            printf("DEBUG: trajectory string before MEOS: %s\n", buffer);
-        },
-        trajectoryStr);
+        pagedVectorPtr,
+        nautilus::val<const MemoryLayout*>(memoryLayoutPtr),
+        nautilus::val<uint64_t>(lonIndexOpt.value()),
+        nautilus::val<uint64_t>(latIndexOpt.value()),
+        nautilus::val<uint64_t>(tsIndexOpt.value()));
 
     // Convert string to MEOS binary format and get size
     auto binarySize = nautilus::invoke(
         +[](const char* trajStr) -> size_t
         {
+            GeoFunctionTimingScope timing(GeoFunctionId::TemporalSequence);
             // Validate string is not empty
             if (!trajStr || strlen(trajStr) == 0) {
                 return 0;
@@ -279,7 +220,7 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
                 return 0;
             }
 
-            free(data);
+            MEOS::Meos::freeMeosPointer(data);
             MEOS::Meos::freeTemporalObject(temp);
 
             return size;
@@ -330,19 +271,6 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
         variableSized.getContent(),
         binaryFormatStr,
         formatStrLen);
-
-    nautilus::invoke(
-        +[](const int8_t* data, size_t len, size_t size) -> void
-        {
-            printf(
-                "DEBUG: MEOS WKB size=%zu label=%.*s\n",
-                size,
-                static_cast<int>(len),
-                reinterpret_cast<const char*>(data));
-        },
-        variableSized.getContent(),
-        nautilus::val<size_t>(formatStrLen),
-        binarySize);
 
     Nautilus::Record resultRecord;
     resultRecord.write(resultFieldIdentifier, variableSized);
