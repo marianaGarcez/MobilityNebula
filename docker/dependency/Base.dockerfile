@@ -26,6 +26,8 @@ RUN apt update -y && apt install \
     ccache \
     ninja-build \
     pkg-config \
+    bison \
+    pipx \
     -y
 
 # install llvm based toolchain
@@ -49,6 +51,29 @@ RUN curl -fsSL https://apt.kitware.com/keys/kitware-archive-latest.asc | gpg --d
     && apt update -y \
     && apt install cmake=${CMAKE_VERSION} cmake-data=${CMAKE_VERSION} -y \
     && cmake --version
+
+# Install MEOS/MobilityDB build dependencies
+RUN apt update -y && apt install -y \
+    postgresql-server-dev-all \
+    postgresql-common \
+    postgresql-client \
+    postgis \
+    libproj-dev \
+    libjson-c-dev \
+    libgsl-dev \
+    libgeos-dev \
+    libgeos++-dev \
+    libgeos-c1v5 \
+    libxml2-dev
+
+# Build MobilityDB with MEOS enabled using GCC
+RUN git clone https://github.com/MobilityDB/MobilityDB.git -b master /usr/local/src/MobilityDB \
+    && mkdir -p /usr/local/src/MobilityDB/build \
+    && cd /usr/local/src/MobilityDB/build \
+    && cmake -DMEOS=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ .. \
+    && make -j$(nproc) \
+    && make install \
+    && ldconfig
 
 # default cmake generator is ninja
 ENV CMAKE_GENERATOR=Ninja

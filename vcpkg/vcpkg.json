@@ -45,8 +45,9 @@
     "boost-url",
     "nameof",
     "scope-guard",
-    "boost-url",
-    "simdjson"
+    "simdjson",
+    { "name": "paho-mqtt" },
+    { "name": "paho-mqttpp3", "features": ["ssl"] }
   ],
   "overrides": [
     {

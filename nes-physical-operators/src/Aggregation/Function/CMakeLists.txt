@@ -17,6 +17,10 @@ add_plugin(Min AggregationPhysicalFunction nes-physical-operators MinAggregation
 add_plugin(Median AggregationPhysicalFunction nes-physical-operators MedianAggregationPhysicalFunction.cpp)
 add_plugin(Sum AggregationPhysicalFunction nes-physical-operators SumAggregationPhysicalFunction.cpp)
 
+add_plugin(Array_Agg AggregationPhysicalFunction nes-physical-operators ArrayAggregationPhysicalFunction.cpp)
+
 add_source_files(nes-physical-operators
         AggregationPhysicalFunction.cpp
 )
+
+add_subdirectory(Meos)

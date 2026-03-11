@@ -21,6 +21,10 @@ activate_optional_plugin("Sources/GeneratorSource" ON)
 activate_optional_plugin("Sinks/VoidSink" ON)
 activate_optional_plugin("InputFormatters/JSONInputFormatter" ON)
 
+# MEOS is a dependency
+activate_optional_plugin("MEOS" ON)
+message(STATUS "Enable MEOS Plugin")
+
 if (NES_ENABLES_TESTS)
   # ChecksumSink depends on Checksum.cpp from systest which is only added when tests are enabled.
   activate_optional_plugin("Sinks/ChecksumSink" ON)
