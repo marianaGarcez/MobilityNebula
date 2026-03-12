@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -22,38 +23,62 @@
 #include <Functions/LogicalFunction.hpp>
 #include <Util/Logger/Formatter.hpp>
 #include <Util/PlanRenderer.hpp>
+#include <Util/Reflection.hpp>
 #include <SerializableVariantDescriptor.pb.h>
 
 namespace NES
 {
-class IntersectLogicalFunction final : public LogicalFunctionConcept
+
+class IntersectLogicalFunction final
 {
 public:
-    static constexpr std::string_view NAME = "And";
+    static constexpr std::string_view NAME = "Intersect";
 
-    IntersectLogicalFunction(LogicalFunction lon, LogicalFunction lat, LogicalFunction ts);
+    IntersectLogicalFunction(const LogicalFunction& lon, const LogicalFunction& lat, const LogicalFunction& ts);
 
-    [[nodiscard]] SerializableFunction serialize() const override;
+    [[nodiscard]] bool operator==(const IntersectLogicalFunction& rhs) const;
 
-    [[nodiscard]] bool operator==(const LogicalFunctionConcept& rhs) const override;
-    
-    // Spatial-temporal intersection method
-    [[nodiscard]] bool spatialIntersects(const double lon, const double lat, const double ts) const;
+    [[nodiscard]] DataType getDataType() const;
+    [[nodiscard]] IntersectLogicalFunction withDataType(const DataType& dataType) const;
+    [[nodiscard]] LogicalFunction withInferredDataType(const Schema& schema) const;
 
-    [[nodiscard]] DataType getDataType() const override;
-    [[nodiscard]] LogicalFunction withDataType(const DataType& dataType) const override;
-    [[nodiscard]] LogicalFunction withInferredDataType(const Schema& schema) const override;
+    [[nodiscard]] std::vector<LogicalFunction> getChildren() const;
+    [[nodiscard]] IntersectLogicalFunction withChildren(const std::vector<LogicalFunction>& children) const;
 
-    [[nodiscard]] std::vector<LogicalFunction> getChildren() const override;
-    [[nodiscard]] LogicalFunction withChildren(const std::vector<LogicalFunction>& children) const override;
-
-    [[nodiscard]] std::string_view getType() const override;
-    [[nodiscard]] std::string explain(ExplainVerbosity verbosity) const override;
+    [[nodiscard]] std::string_view getType() const;
+    [[nodiscard]] std::string explain(ExplainVerbosity verbosity) const;
 
 private:
     DataType dataType;
     LogicalFunction lon, lat, ts;
+
+    friend Reflector<IntersectLogicalFunction>;
+};
+
+static_assert(LogicalFunctionConcept<IntersectLogicalFunction>);
+
+template <>
+struct Reflector<IntersectLogicalFunction>
+{
+    Reflected operator()(const IntersectLogicalFunction& function) const;
+};
+
+template <>
+struct Unreflector<IntersectLogicalFunction>
+{
+    IntersectLogicalFunction operator()(const Reflected& reflected) const;
 };
 
 }
+
+namespace NES::detail
+{
+struct ReflectedIntersectLogicalFunction
+{
+    std::optional<LogicalFunction> lon;
+    std::optional<LogicalFunction> lat;
+    std::optional<LogicalFunction> ts;
+};
+}
+
 FMT_OSTREAM(NES::IntersectLogicalFunction);

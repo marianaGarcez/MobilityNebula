@@ -6,7 +6,7 @@
 
 namespace NES {
 
-class TemporalEDWithinGeometryPhysicalFunction : public PhysicalFunctionConcept {
+class TemporalEDWithinGeometryPhysicalFunction final {
 public:
     TemporalEDWithinGeometryPhysicalFunction(PhysicalFunction lonFunction,
                                              PhysicalFunction latFunction,
@@ -14,10 +14,12 @@ public:
                                              PhysicalFunction geometryFunction,
                                              PhysicalFunction distanceFunction);
 
-    VarVal execute(const Record& record, ArenaRef& arena) const override;
+    [[nodiscard]] VarVal execute(const Record& record, ArenaRef& arena) const;
 
 private:
     std::vector<PhysicalFunction> parameterFunctions;
 };
+
+static_assert(PhysicalFunctionConcept<TemporalEDWithinGeometryPhysicalFunction>);
 
 }

@@ -4,7 +4,7 @@
 
 namespace NES {
 
-class TemporalEContainsGeometryPhysicalFunction : public PhysicalFunctionConcept {
+class TemporalEContainsGeometryPhysicalFunction final {
 public:
     /* temporal–static (tgeo,geo) or static–temporal (geo,tgeo) */
     /* Order determined by data types of the parameters */
@@ -21,7 +21,7 @@ public:
                                              PhysicalFunction lat2,
                                              PhysicalFunction ts2);
 
-    VarVal execute(const Record&, ArenaRef&) const override;
+    [[nodiscard]] VarVal execute(const Record&, ArenaRef&) const;
 
 private:
     std::vector<PhysicalFunction> paramFns;
@@ -30,5 +30,7 @@ private:
     VarVal execStaticTemporal (const std::vector<VarVal>&) const;
     VarVal execTemporalTemporal(const std::vector<VarVal>&) const;
 };
+
+static_assert(PhysicalFunctionConcept<TemporalEContainsGeometryPhysicalFunction>);
 
 } // namespace NES

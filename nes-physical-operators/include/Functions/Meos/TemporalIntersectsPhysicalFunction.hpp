@@ -22,15 +22,18 @@
 namespace NES
 {
 
-class TemporalIntersectsPhysicalFunction final : public PhysicalFunctionConcept
+class TemporalIntersectsPhysicalFunction final
 {
 public:
     TemporalIntersectsPhysicalFunction(PhysicalFunction leftPhysicalFunction, PhysicalFunction rightPhysicalFunction, PhysicalFunction tsPhysicalFunction);
-    [[nodiscard]] VarVal execute(const Record& record, ArenaRef& arena) const override;
+    [[nodiscard]] VarVal execute(const Record& record, ArenaRef& arena) const;
 
 private:
     PhysicalFunction leftPhysicalFunction;
     PhysicalFunction rightPhysicalFunction;
     PhysicalFunction tsPhysicalFunction;
 };
+
+static_assert(PhysicalFunctionConcept<TemporalIntersectsPhysicalFunction>);
+
 }

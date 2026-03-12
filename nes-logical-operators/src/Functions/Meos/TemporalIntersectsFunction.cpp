@@ -13,85 +13,111 @@
 */
 
 #include <Functions/Meos/TemporalIntersectsFunction.hpp>
+
+#include <string>
+#include <string_view>
+#include <vector>
+#include <DataTypes/DataType.hpp>
 #include <DataTypes/DataTypeProvider.hpp>
-#include <Serialization/DataTypeSerializationUtil.hpp>
+#include <DataTypes/Schema.hpp>
+#include <Functions/LogicalFunction.hpp>
+#include <Serialization/LogicalFunctionReflection.hpp>
+#include <Util/PlanRenderer.hpp>
+#include <Util/Reflection.hpp>
 #include <fmt/format.h>
-#include <iostream>
 #include <ErrorHandling.hpp>
 #include <LogicalFunctionRegistry.hpp>
+#include <SerializableVariantDescriptor.pb.h>
 
-namespace NES {
+namespace NES
+{
 
-TemporalIntersectsFunction::TemporalIntersectsFunction(
-    LogicalFunction lon, LogicalFunction lat, LogicalFunction ts)
+TemporalIntersectsFunction::TemporalIntersectsFunction(const LogicalFunction& lon, const LogicalFunction& lat, const LogicalFunction& ts)
     : dataType(DataTypeProvider::provideDataType(DataType::Type::BOOLEAN))
-    , lon(std::move(lon))
-    , lat(std::move(lat)) 
-    , ts(std::move(ts))
+    , lon(lon)
+    , lat(lat)
+    , ts(ts)
 {
 }
 
-std::string TemporalIntersectsFunction::explain(ExplainVerbosity verbosity) const {
-    return fmt::format("TEMPORAL_INTERSECTS({}, {}, {})", 
-                      lon.explain(verbosity), 
-                      lat.explain(verbosity), 
+bool TemporalIntersectsFunction::operator==(const TemporalIntersectsFunction& rhs) const
+{
+    return lon == rhs.lon && lat == rhs.lat && ts == rhs.ts;
+}
+
+std::string TemporalIntersectsFunction::explain(ExplainVerbosity verbosity) const
+{
+    return fmt::format("TEMPORAL_INTERSECTS({}, {}, {})",
+                      lon.explain(verbosity),
+                      lat.explain(verbosity),
                       ts.explain(verbosity));
 }
 
-DataType TemporalIntersectsFunction::getDataType() const {
+DataType TemporalIntersectsFunction::getDataType() const
+{
     return dataType;
 }
 
-LogicalFunction TemporalIntersectsFunction::withDataType(const DataType& dataType) const {
+TemporalIntersectsFunction TemporalIntersectsFunction::withDataType(const DataType& dataType) const
+{
     auto copy = *this;
     copy.dataType = dataType;
     return copy;
 }
 
-LogicalFunction TemporalIntersectsFunction::withInferredDataType(const Schema& schema) const {
-    return TemporalIntersectsFunction(
-        lon.withInferredDataType(schema),
-        lat.withInferredDataType(schema),
-        ts.withInferredDataType(schema)
-    );
+LogicalFunction TemporalIntersectsFunction::withInferredDataType(const Schema& schema) const
+{
+    auto newChildren = getChildren();
+    for (auto& c : newChildren)
+    {
+        c = c.withInferredDataType(schema);
+    }
+    return withChildren(newChildren).withDataType(DataTypeProvider::provideDataType(DataType::Type::BOOLEAN));
 }
 
-std::vector<LogicalFunction> TemporalIntersectsFunction::getChildren() const {
+std::vector<LogicalFunction> TemporalIntersectsFunction::getChildren() const
+{
     return {lon, lat, ts};
 }
 
-LogicalFunction TemporalIntersectsFunction::withChildren(const std::vector<LogicalFunction>& children) const {
-    if (children.size() != 3) {
-        throw std::runtime_error("TemporalIntersectsFunction requires exactly 3 children");
-    }
-    return TemporalIntersectsFunction(children[0], children[1], children[2]);
+TemporalIntersectsFunction TemporalIntersectsFunction::withChildren(const std::vector<LogicalFunction>& children) const
+{
+    PRECONDITION(children.size() == 3, "TemporalIntersectsFunction requires exactly 3 children, but got {}", children.size());
+    auto copy = *this;
+    copy.lon = children[0];
+    copy.lat = children[1];
+    copy.ts = children[2];
+    return copy;
 }
 
-std::string_view TemporalIntersectsFunction::getType() const {
+std::string_view TemporalIntersectsFunction::getType() const
+{
     return NAME;
 }
 
-SerializableFunction TemporalIntersectsFunction::serialize() const {
-    SerializableFunction function;
-    function.set_function_type(std::string(NAME));
-    function.add_children()->CopyFrom(lon.serialize());
-    function.add_children()->CopyFrom(lat.serialize());
-    function.add_children()->CopyFrom(ts.serialize());
-    DataTypeSerializationUtil::serializeDataType(dataType, function.mutable_data_type());
-    return function;
-}
-
-bool TemporalIntersectsFunction::operator==(const LogicalFunctionConcept& rhs) const {
-    std::cout << "TemporalIntersectsFunction::operator==" << std::endl;
-    if (const auto* other = dynamic_cast<const TemporalIntersectsFunction*>(&rhs)) {
-        return lon == other->lon && lat == other->lat && ts == other->ts;
-    }
-    return false;
-}
-
-
-NES::LogicalFunctionRegistryReturnType NES::LogicalFunctionGeneratedRegistrar::RegisterTemporalIntersectsLogicalFunction(NES::LogicalFunctionRegistryArguments arguments)
+Reflected Reflector<TemporalIntersectsFunction>::operator()(const TemporalIntersectsFunction& function) const
 {
+    return reflect(detail::ReflectedTemporalIntersectsFunction{.lon = function.lon, .lat = function.lat, .ts = function.ts});
+}
+
+TemporalIntersectsFunction Unreflector<TemporalIntersectsFunction>::operator()(const Reflected& reflected) const
+{
+    auto [lon, lat, ts] = unreflect<detail::ReflectedTemporalIntersectsFunction>(reflected);
+
+    if (!lon.has_value() || !lat.has_value() || !ts.has_value())
+    {
+        throw CannotDeserialize("TemporalIntersectsFunction is missing a child");
+    }
+    return TemporalIntersectsFunction{lon.value(), lat.value(), ts.value()};
+}
+
+LogicalFunctionRegistryReturnType LogicalFunctionGeneratedRegistrar::RegisterTemporalIntersectsLogicalFunction(LogicalFunctionRegistryArguments arguments)
+{
+    if (!arguments.reflected.isEmpty())
+    {
+        return unreflect<TemporalIntersectsFunction>(arguments.reflected);
+    }
+
     PRECONDITION(arguments.children.size() == 3, "TemporalIntersectsFunction requires exactly three children, but got {}", arguments.children.size());
     return TemporalIntersectsFunction(arguments.children[0], arguments.children[1], arguments.children[2]);
 }

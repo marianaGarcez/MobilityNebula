@@ -65,12 +65,12 @@ VarVal TemporalAIntersectsGeometryPhysicalFunction::execute(const Record& record
 VarVal TemporalAIntersectsGeometryPhysicalFunction::executeTemporal6Param(const std::vector<VarVal>& params) const
 {
     // Extract coordinate values: lon1, lat1, timestamp1, lon2, lat2, timestamp2
-    auto lon1 = params[0].cast<nautilus::val<double>>();
-    auto lat1 = params[1].cast<nautilus::val<double>>();
-    auto timestamp1 = params[2].cast<nautilus::val<uint64_t>>();
-    auto lon2 = params[3].cast<nautilus::val<double>>();
-    auto lat2 = params[4].cast<nautilus::val<double>>();
-    auto timestamp2 = params[5].cast<nautilus::val<uint64_t>>();
+    auto lon1 = params[0].getRawValueAs<nautilus::val<double>>();
+    auto lat1 = params[1].getRawValueAs<nautilus::val<double>>();
+    auto timestamp1 = params[2].getRawValueAs<nautilus::val<uint64_t>>();
+    auto lon2 = params[3].getRawValueAs<nautilus::val<double>>();
+    auto lat2 = params[4].getRawValueAs<nautilus::val<double>>();
+    auto timestamp2 = params[5].getRawValueAs<nautilus::val<uint64_t>>();
     
     std::cout << "6-param temporal-temporal aintersection with coordinate values" << std::endl;
     
@@ -131,16 +131,16 @@ VarVal TemporalAIntersectsGeometryPhysicalFunction::executeTemporal6Param(const 
 VarVal TemporalAIntersectsGeometryPhysicalFunction::executeTemporal4Param(const std::vector<VarVal>& params) const
 {
     // Extract values: lon1, lat1, timestamp1, static_geometry_wkt
-    auto lon1 = params[0].cast<nautilus::val<double>>();
-    auto lat1 = params[1].cast<nautilus::val<double>>();
-    auto timestamp1 = params[2].cast<nautilus::val<uint64_t>>();
-    auto static_geometry_varsized = params[3].cast<VariableSizedData>();
+    auto lon1 = params[0].getRawValueAs<nautilus::val<double>>();
+    auto lat1 = params[1].getRawValueAs<nautilus::val<double>>();
+    auto timestamp1 = params[2].getRawValueAs<nautilus::val<uint64_t>>();
+    auto static_geometry_varsized = params[3].getRawValueAs<VariableSizedData>();
     
     std::cout << "4-param temporal-static aintersection with coordinate values" << std::endl;
     
     // Use nautilus::invoke to call external MEOS function with coordinate and geometry parameters
     const auto result = nautilus::invoke(
-        +[](double lon1_val, double lat1_val, uint64_t ts1_val, const char* static_geom_ptr, uint32_t static_geom_size) -> int {
+        +[](double lon1_val, double lat1_val, uint64_t ts1_val, int8_t* static_geom_ptr, uint64_t static_geom_size) -> int {
             try {
                 // Use the existing global MEOS initialization mechanism
                 MEOS::Meos::ensureMeosInitialized();
@@ -148,15 +148,15 @@ VarVal TemporalAIntersectsGeometryPhysicalFunction::executeTemporal4Param(const 
                     std::cout << "TemporalAIntersects: coordinates out of range" << std::endl;
                     return 0;
                 }
-                
+
                 // Convert UINT64 timestamp to MEOS timestamp string
                 std::string timestamp1_str = MEOS::Meos::convertEpochToTimestamp(ts1_val);
-                
+
                 // Build temporal geometry WKT string from coordinates and timestamp
                 std::string left_geometry_wkt = fmt::format("SRID=4326;Point({} {})@{}", lon1_val, lat1_val, timestamp1_str);
-                
+
                 // Extract static geometry WKT from VariableSizedData
-                std::string right_geometry_wkt(static_geom_ptr, static_geom_size);
+                std::string right_geometry_wkt(reinterpret_cast<const char*>(static_geom_ptr), static_geom_size);
                 
                 // Strip quotes if present (CSV parsing includes quotes in the string values)
                 while (!right_geometry_wkt.empty() && (right_geometry_wkt.front() == '\'' || right_geometry_wkt.front() == '"')) {
@@ -200,7 +200,7 @@ VarVal TemporalAIntersectsGeometryPhysicalFunction::executeTemporal4Param(const 
                 return -1;  // Error case
             }
         },
-        lon1, lat1, timestamp1, static_geometry_varsized.getContent(), static_geometry_varsized.getContentSize()
+        lon1, lat1, timestamp1, static_geometry_varsized.getContent(), static_geometry_varsized.getSize()
     );
     
     return VarVal(result);

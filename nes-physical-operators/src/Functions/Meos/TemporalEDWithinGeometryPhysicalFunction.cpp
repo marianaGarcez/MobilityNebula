@@ -40,18 +40,18 @@ VarVal TemporalEDWithinGeometryPhysicalFunction::execute(const Record& record, A
         parameterValues.emplace_back(function.execute(record, arena));
     }
 
-    auto lon = parameterValues[0].cast<nautilus::val<double>>();
-    auto lat = parameterValues[1].cast<nautilus::val<double>>();
-    auto timestamp = parameterValues[2].cast<nautilus::val<uint64_t>>();
-    auto geometry = parameterValues[3].cast<VariableSizedData>();
-    auto distance = parameterValues[4].cast<nautilus::val<double>>();
+    auto lon = parameterValues[0].getRawValueAs<nautilus::val<double>>();
+    auto lat = parameterValues[1].getRawValueAs<nautilus::val<double>>();
+    auto timestamp = parameterValues[2].getRawValueAs<nautilus::val<uint64_t>>();
+    auto geometry = parameterValues[3].getRawValueAs<VariableSizedData>();
+    auto distance = parameterValues[4].getRawValueAs<nautilus::val<double>>();
 
     const auto result = nautilus::invoke(
         +[](double lonValue,
             double latValue,
             uint64_t timestampValue,
-            const char* geometryPtr,
-            uint32_t geometrySize,
+            int8_t* geometryPtr,
+            uint64_t geometrySize,
             double distanceValue) -> int {
             try
             {
@@ -63,7 +63,7 @@ VarVal TemporalEDWithinGeometryPhysicalFunction::execute(const Record& record, A
 
                 const std::string timestampString = MEOS::Meos::convertEpochToTimestamp(timestampValue);
                 std::string temporalGeometryWkt = fmt::format("SRID=4326;Point({} {})@{}", lonValue, latValue, timestampString);
-                std::string staticGeometryWkt(geometryPtr, geometrySize);
+                std::string staticGeometryWkt(reinterpret_cast<const char*>(geometryPtr), geometrySize);
 
                 while (!staticGeometryWkt.empty() && (staticGeometryWkt.front() == '\'' || staticGeometryWkt.front() == '"'))
                     staticGeometryWkt.erase(staticGeometryWkt.begin());
@@ -84,7 +84,7 @@ VarVal TemporalEDWithinGeometryPhysicalFunction::execute(const Record& record, A
             }
             catch (...) { return -1; }
         },
-        lon, lat, timestamp, geometry.getContent(), geometry.getContentSize(), distance);
+        lon, lat, timestamp, geometry.getContent(), geometry.getSize(), distance);
 
     return VarVal(result);
 }

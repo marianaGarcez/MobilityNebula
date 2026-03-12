@@ -55,30 +55,30 @@ VarVal TemporalAtStBoxPhysicalFunction::execute(const Record& record, ArenaRef& 
         parameterValues.emplace_back(function.execute(record, arena));
     }
 
-    auto lon = parameterValues[0].cast<nautilus::val<double>>();
-    auto lat = parameterValues[1].cast<nautilus::val<double>>();
-    auto timestamp = parameterValues[2].cast<nautilus::val<uint64_t>>();
-    auto stboxLiteral = parameterValues[3].cast<VariableSizedData>();
+    auto lon = parameterValues[0].getRawValueAs<nautilus::val<double>>();
+    auto lat = parameterValues[1].getRawValueAs<nautilus::val<double>>();
+    auto timestamp = parameterValues[2].getRawValueAs<nautilus::val<uint64_t>>();
+    auto stboxLiteral = parameterValues[3].getRawValueAs<VariableSizedData>();
 
     nautilus::val<bool> borderVal = nautilus::val<bool>(true);
     if (hasBorderParam && parameterValues.size() >= 5)
     {
-        borderVal = parameterValues[4].cast<nautilus::val<bool>>();
+        borderVal = parameterValues[4].getRawValueAs<nautilus::val<bool>>();
     }
 
     const auto result = nautilus::invoke(
         +[](double lonValue,
             double latValue,
             uint64_t timestampValue,
-            const char* stboxPtr,
-            uint32_t stboxSize,
+            int8_t* stboxPtr,
+            uint64_t stboxSize,
             bool borderInclusiveFlag) -> int {
             try
             {
                 MEOS::Meos::ensureMeosInitialized();
                 const std::string timestampString = MEOS::Meos::convertEpochToTimestamp(timestampValue);
                 std::string temporalGeometryWkt = fmt::format("SRID=4326;Point({} {})@{}", lonValue, latValue, timestampString);
-                std::string stboxWkt(stboxPtr, stboxSize);
+                std::string stboxWkt(reinterpret_cast<const char*>(stboxPtr), stboxSize);
                 while (!stboxWkt.empty() && (stboxWkt.front()=='\'' || stboxWkt.front()=='"')) stboxWkt.erase(stboxWkt.begin());
                 while (!stboxWkt.empty() && (stboxWkt.back()=='\'' || stboxWkt.back()=='"')) stboxWkt.pop_back();
                 if (temporalGeometryWkt.empty() || stboxWkt.empty()) return 0;
@@ -96,7 +96,7 @@ VarVal TemporalAtStBoxPhysicalFunction::execute(const Record& record, ArenaRef& 
         lat,
         timestamp,
         stboxLiteral.getContent(),
-        stboxLiteral.getContentSize(),
+        stboxLiteral.getSize(),
         borderVal);
 
     return VarVal(result);

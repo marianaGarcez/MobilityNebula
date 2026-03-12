@@ -12,17 +12,18 @@
     limitations under the License.
 */
 
+#include <Functions/Meos/IntersectLogicalFunction.hpp>
+
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 #include <DataTypes/DataType.hpp>
 #include <DataTypes/DataTypeProvider.hpp>
 #include <DataTypes/Schema.hpp>
-#include <Functions/Meos/IntersectLogicalFunction.hpp>
 #include <Functions/LogicalFunction.hpp>
-#include <Serialization/DataTypeSerializationUtil.hpp>
+#include <Serialization/LogicalFunctionReflection.hpp>
 #include <Util/PlanRenderer.hpp>
+#include <Util/Reflection.hpp>
 #include <fmt/format.h>
 #include <ErrorHandling.hpp>
 #include <LogicalFunctionRegistry.hpp>
@@ -31,12 +32,24 @@
 namespace NES
 {
 
-IntersectLogicalFunction::IntersectLogicalFunction(LogicalFunction lon, LogicalFunction lat, LogicalFunction ts)
+IntersectLogicalFunction::IntersectLogicalFunction(const LogicalFunction& lon, const LogicalFunction& lat, const LogicalFunction& ts)
     : dataType(DataTypeProvider::provideDataType(DataType::Type::BOOLEAN))
-    , lon(std::move(std::move(lon)))
-    , lat(std::move(std::move(lat)))
-    , ts(std::move(std::move(ts)))
+    , lon(lon)
+    , lat(lat)
+    , ts(ts)
 {
+}
+
+bool IntersectLogicalFunction::operator==(const IntersectLogicalFunction& rhs) const
+{
+    const bool simpleMatch = lon == rhs.lon and lat == rhs.lat and ts == rhs.ts;
+    const bool commutativeMatch = lon == rhs.lat and lat == rhs.lon and ts == rhs.ts;
+    return simpleMatch or commutativeMatch;
+}
+
+std::string IntersectLogicalFunction::explain(ExplainVerbosity verbosity) const
+{
+    return fmt::format("INTERSECT({}, {}, {})", lon.explain(verbosity), lat.explain(verbosity), ts.explain(verbosity));
 }
 
 DataType IntersectLogicalFunction::getDataType() const
@@ -44,19 +57,40 @@ DataType IntersectLogicalFunction::getDataType() const
     return dataType;
 };
 
-LogicalFunction IntersectLogicalFunction::withDataType(const DataType& dataType) const
+IntersectLogicalFunction IntersectLogicalFunction::withDataType(const DataType& dataType) const
 {
     auto copy = *this;
     copy.dataType = dataType;
     return copy;
 };
 
+LogicalFunction IntersectLogicalFunction::withInferredDataType(const Schema& schema) const
+{
+    std::vector<LogicalFunction> newChildren;
+    for (auto& node : getChildren())
+    {
+        newChildren.push_back(node.withInferredDataType(schema));
+    }
+    /// check if children dataType is correct - spatial coordinates should be numeric
+    INVARIANT(
+        newChildren[0].getDataType().isType(DataType::Type::FLOAT64), "the dataType of longitude child must be FLOAT64, but was: {}", newChildren[0].getDataType());
+    INVARIANT(
+        newChildren[1].getDataType().isType(DataType::Type::FLOAT64),
+        "the dataType of latitude child must be FLOAT64, but was: {}",
+        newChildren[1].getDataType());
+    INVARIANT(
+        newChildren[2].getDataType().isType(DataType::Type::UINT64),
+        "the dataType of timestamp child must be UINT64, but was: {}",
+        newChildren[2].getDataType());
+    return withChildren(newChildren);
+}
+
 std::vector<LogicalFunction> IntersectLogicalFunction::getChildren() const
 {
     return {lon, lat, ts};
 };
 
-LogicalFunction IntersectLogicalFunction::withChildren(const std::vector<LogicalFunction>& children) const
+IntersectLogicalFunction IntersectLogicalFunction::withChildren(const std::vector<LogicalFunction>& children) const
 {
     PRECONDITION(children.size() == 3, "IntersectLogicalFunction requires exactly three children, but got {}", children.size());
     auto copy = *this;
@@ -71,60 +105,31 @@ std::string_view IntersectLogicalFunction::getType() const
     return NAME;
 }
 
-bool IntersectLogicalFunction::operator==(const LogicalFunctionConcept& rhs) const
+Reflected Reflector<IntersectLogicalFunction>::operator()(const IntersectLogicalFunction& function) const
 {
-    if (const auto* other = dynamic_cast<const IntersectLogicalFunction*>(&rhs))
+    return reflect(detail::ReflectedIntersectLogicalFunction{.lon = function.lon, .lat = function.lat, .ts = function.ts});
+}
+
+IntersectLogicalFunction Unreflector<IntersectLogicalFunction>::operator()(const Reflected& reflected) const
+{
+    auto [lon, lat, ts] = unreflect<detail::ReflectedIntersectLogicalFunction>(reflected);
+
+    if (!lon.has_value() || !lat.has_value() || !ts.has_value())
     {
-        const bool simpleMatch = lon == other->lon and lat == other->lat and ts == other->ts;
-        const bool commutativeMatch = lon == other->lat and lat == other->lon and ts == other->ts;
-        return simpleMatch or commutativeMatch;
+        throw CannotDeserialize("IntersectLogicalFunction is missing a child");
     }
-    return false;
-}
-
-
-std::string IntersectLogicalFunction::explain(ExplainVerbosity verbosity) const
-{
-    return fmt::format("INTERSECT({}, {}, {})", lon.explain(verbosity), lat.explain(verbosity), ts.explain(verbosity));
-}
-
-LogicalFunction IntersectLogicalFunction::withInferredDataType(const Schema& schema) const
-{
-    std::vector<LogicalFunction> newChildren;
-    for (auto& node : getChildren())
-    {
-        newChildren.push_back(node.withInferredDataType(schema));
-    }
-    /// check if children dataType is correct - spatial coordinates should be numeric
-    INVARIANT(
-        lon.getDataType().isType(DataType::Type::FLOAT64), "the dataType of longitude child must be FLOAT64, but was: {}", lon.getDataType());
-    INVARIANT(
-        lat.getDataType().isType(DataType::Type::FLOAT64),
-        "the dataType of latitude child must be FLOAT64, but was: {}",
-        lat.getDataType());
-    INVARIANT(
-        ts.getDataType().isType(DataType::Type::UINT64),
-        "the dataType of timestamp child must be UINT64, but was: {}",
-        ts.getDataType());
-    return this->withChildren(newChildren);
-}
-
-SerializableFunction IntersectLogicalFunction::serialize() const
-{
-    SerializableFunction serializedFunction;
-    serializedFunction.set_function_type(NAME);
-    serializedFunction.add_children()->CopyFrom(lon.serialize());
-    serializedFunction.add_children()->CopyFrom(lat.serialize());
-    serializedFunction.add_children()->CopyFrom(ts.serialize());
-    DataTypeSerializationUtil::serializeDataType(this->getDataType(), serializedFunction.mutable_data_type());
-    return serializedFunction;
+    return IntersectLogicalFunction{lon.value(), lat.value(), ts.value()};
 }
 
 LogicalFunctionRegistryReturnType LogicalFunctionGeneratedRegistrar::RegisterIntersectLogicalFunction(LogicalFunctionRegistryArguments arguments)
 {
+    if (!arguments.reflected.isEmpty())
+    {
+        return unreflect<IntersectLogicalFunction>(arguments.reflected);
+    }
+
     PRECONDITION(arguments.children.size() == 3, "IntersectLogicalFunction requires exactly three children, but got {}", arguments.children.size());
     return IntersectLogicalFunction(arguments.children[0], arguments.children[1], arguments.children[2]);
 }
-
 
 }

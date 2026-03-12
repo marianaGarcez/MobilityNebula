@@ -63,12 +63,12 @@ VarVal TemporalEContainsGeometryPhysicalFunction::execute(const Record& rec,
 
 VarVal
 TemporalEContainsGeometryPhysicalFunction::execTemporalTemporal(const std::vector<VarVal>& p) const {
-    auto lon1 = p[0].cast<nautilus::val<double>>();
-    auto lat1 = p[1].cast<nautilus::val<double>>();
-    auto ts1  = p[2].cast<nautilus::val<uint64_t>>();
-    auto lon2 = p[3].cast<nautilus::val<double>>();
-    auto lat2 = p[4].cast<nautilus::val<double>>();
-    auto ts2  = p[5].cast<nautilus::val<uint64_t>>();
+    auto lon1 = p[0].getRawValueAs<nautilus::val<double>>();
+    auto lat1 = p[1].getRawValueAs<nautilus::val<double>>();
+    auto ts1  = p[2].getRawValueAs<nautilus::val<uint64_t>>();
+    auto lon2 = p[3].getRawValueAs<nautilus::val<double>>();
+    auto lat2 = p[4].getRawValueAs<nautilus::val<double>>();
+    auto ts2  = p[5].getRawValueAs<nautilus::val<uint64_t>>();
 
     std::cout << "6-param temporal-temporal contains function with coordinate values" << std::endl;
 
@@ -103,15 +103,15 @@ TemporalEContainsGeometryPhysicalFunction::execTemporalTemporal(const std::vecto
 VarVal
 TemporalEContainsGeometryPhysicalFunction::execTemporalStatic(const std::vector<VarVal>& p) const 
 {
-    auto lon  = p[0].cast<nautilus::val<double>>();
-    auto lat  = p[1].cast<nautilus::val<double>>();
-    auto ts   = p[2].cast<nautilus::val<uint64_t>>();
-    auto stat = p[3].cast<VariableSizedData>();
+    auto lon  = p[0].getRawValueAs<nautilus::val<double>>();
+    auto lat  = p[1].getRawValueAs<nautilus::val<double>>();
+    auto ts   = p[2].getRawValueAs<nautilus::val<uint64_t>>();
+    auto stat = p[3].getRawValueAs<VariableSizedData>();
     std::cout << "4-param temporal-static contains function with coordinate values" << std::endl;
 
 
     const auto res = nautilus::invoke(
-        +[](double lo,double la,uint64_t t, const char* g, uint32_t sz) -> int {
+        +[](double lo,double la,uint64_t t, int8_t* g, uint64_t sz) -> int {
             try {
                 MEOS::Meos::ensureMeosInitialized();
                 if (!(lo >= -180.0 && lo <= 180.0 && la >= -90.0 && la <= 90.0)) {
@@ -120,7 +120,7 @@ TemporalEContainsGeometryPhysicalFunction::execTemporalStatic(const std::vector<
                 }
                 std::string tsStr = MEOS::Meos::convertEpochToTimestamp(t);
                 std::string left  = fmt::format("SRID=4326;Point({} {})@{}", lo, la, tsStr);
-                std::string right(g, sz);
+                std::string right(reinterpret_cast<const char*>(g), sz);
                 while (!right.empty() && (right.front() == '\'' || right.front() == '"')) {
                     right = right.substr(1);
                 }
@@ -158,7 +158,7 @@ TemporalEContainsGeometryPhysicalFunction::execTemporalStatic(const std::vector<
                 std::cout << "Unknown error in temporal geometry contains" << std::endl;
                 return -1;  // Error case
             }
-    }, lon,lat,ts, stat.getContent(), stat.getContentSize());
+    }, lon,lat,ts, stat.getContent(), stat.getSize());
 
     return VarVal(res);
 }
@@ -166,15 +166,15 @@ TemporalEContainsGeometryPhysicalFunction::execTemporalStatic(const std::vector<
 VarVal
 TemporalEContainsGeometryPhysicalFunction::execStaticTemporal(const std::vector<VarVal>& p) const
 {
-    auto stat = p[0].cast<VariableSizedData>();
-    auto lon  = p[1].cast<nautilus::val<double>>();
-    auto lat  = p[2].cast<nautilus::val<double>>();
-    auto ts   = p[3].cast<nautilus::val<uint64_t>>();
+    auto stat = p[0].getRawValueAs<VariableSizedData>();
+    auto lon  = p[1].getRawValueAs<nautilus::val<double>>();
+    auto lat  = p[2].getRawValueAs<nautilus::val<double>>();
+    auto ts   = p[3].getRawValueAs<nautilus::val<uint64_t>>();
     std::cout << "4-param static-temporal contains function with coordinate values" << std::endl;
 
 
     const auto res = nautilus::invoke(
-        +[](const char* g,uint32_t sz, double lo,double la,uint64_t t) -> int {
+        +[](int8_t* g,uint64_t sz, double lo,double la,uint64_t t) -> int {
             try {
                 MEOS::Meos::ensureMeosInitialized();
                 if (!(lo >= -180.0 && lo <= 180.0 && la >= -90.0 && la <= 90.0)) {
@@ -183,7 +183,7 @@ TemporalEContainsGeometryPhysicalFunction::execStaticTemporal(const std::vector<
                 }
                 std::string tsStr = MEOS::Meos::convertEpochToTimestamp(t);
                 std::string right  = fmt::format("SRID=4326;Point({} {})@{}", lo, la, tsStr);
-                std::string left(g, sz);
+                std::string left(reinterpret_cast<const char*>(g), sz);
                 while (!left.empty() && (left.front() == '\'' || left.front() == '"')) {
                     left = left.substr(1);
                 }
@@ -221,7 +221,7 @@ TemporalEContainsGeometryPhysicalFunction::execStaticTemporal(const std::vector<
                 std::cout << "Unknown error in temporal geometry contains" << std::endl;
                 return -1;  // Error case
             }
-    }, stat.getContent(), stat.getContentSize(), lon,lat,ts);
+    }, stat.getContent(), stat.getSize(), lon,lat,ts);
 
     return VarVal(res);
 }

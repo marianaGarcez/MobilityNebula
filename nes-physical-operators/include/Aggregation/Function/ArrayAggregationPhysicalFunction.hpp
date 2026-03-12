@@ -31,25 +31,25 @@ public:
         DataType inputType,
         DataType resultType,
         PhysicalFunction inputFunction,
-        Nautilus::Record::RecordFieldIdentifier resultFieldIdentifier,
-        std::shared_ptr<Nautilus::Interface::BufferRef::TupleBufferRef> bufferRef);
+        Record::RecordFieldIdentifier resultFieldIdentifier,
+        std::shared_ptr<TupleBufferRef> bufferRef);
     void lift(
         const nautilus::val<AggregationState*>& aggregationState,
         PipelineMemoryProvider& pipelineMemoryProvider,
-        const Nautilus::Record& record)
+        const Record& record)
         override;
     void combine(
         nautilus::val<AggregationState*> aggregationState1,
         nautilus::val<AggregationState*> aggregationState2,
         PipelineMemoryProvider& pipelineMemoryProvider) override;
-    Nautilus::Record lower(nautilus::val<AggregationState*> aggregationState, PipelineMemoryProvider& pipelineMemoryProvider) override;
+    Record lower(nautilus::val<AggregationState*> aggregationState, PipelineMemoryProvider& pipelineMemoryProvider) override;
     void reset(nautilus::val<AggregationState*> aggregationState, PipelineMemoryProvider& pipelineMemoryProvider) override;
     [[nodiscard]] size_t getSizeOfStateInBytes() const override;
     ~ArrayAggregationPhysicalFunction() override = default;
     void cleanup(nautilus::val<AggregationState*> aggregationState) override;
 
 private:
-    std::shared_ptr<Nautilus::Interface::BufferRef::TupleBufferRef> bufferRef;
+    std::shared_ptr<TupleBufferRef> bufferRef;
 };
 
 }

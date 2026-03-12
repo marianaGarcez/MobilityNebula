@@ -6,7 +6,7 @@
 
 namespace NES {
 
-class TemporalAtStBoxPhysicalFunction : public PhysicalFunctionConcept {
+class TemporalAtStBoxPhysicalFunction final {
 public:
     TemporalAtStBoxPhysicalFunction(PhysicalFunction lonFunction,
                                     PhysicalFunction latFunction,
@@ -19,11 +19,13 @@ public:
                                     PhysicalFunction stboxFunction,
                                     PhysicalFunction borderInclusiveFunction);
 
-    VarVal execute(const Record& record, ArenaRef& arena) const override;
+    [[nodiscard]] VarVal execute(const Record& record, ArenaRef& arena) const;
 
 private:
     std::vector<PhysicalFunction> parameterFunctions;
     bool hasBorderParam;
 };
+
+static_assert(PhysicalFunctionConcept<TemporalAtStBoxPhysicalFunction>);
 
 }

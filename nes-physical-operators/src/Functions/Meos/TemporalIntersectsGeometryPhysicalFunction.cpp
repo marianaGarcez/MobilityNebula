@@ -65,12 +65,12 @@ VarVal TemporalIntersectsGeometryPhysicalFunction::execute(const Record& record,
 VarVal TemporalIntersectsGeometryPhysicalFunction::executeTemporal6Param(const std::vector<VarVal>& params) const
 {
     // Extract coordinate values: lon1, lat1, timestamp1, lon2, lat2, timestamp2
-    auto lon1 = params[0].cast<nautilus::val<double>>();
-    auto lat1 = params[1].cast<nautilus::val<double>>();
-    auto timestamp1 = params[2].cast<nautilus::val<uint64_t>>();
-    auto lon2 = params[3].cast<nautilus::val<double>>();
-    auto lat2 = params[4].cast<nautilus::val<double>>();
-    auto timestamp2 = params[5].cast<nautilus::val<uint64_t>>();
+    auto lon1 = params[0].getRawValueAs<nautilus::val<double>>();
+    auto lat1 = params[1].getRawValueAs<nautilus::val<double>>();
+    auto timestamp1 = params[2].getRawValueAs<nautilus::val<uint64_t>>();
+    auto lon2 = params[3].getRawValueAs<nautilus::val<double>>();
+    auto lat2 = params[4].getRawValueAs<nautilus::val<double>>();
+    auto timestamp2 = params[5].getRawValueAs<nautilus::val<uint64_t>>();
     
     std::cout << "6-param temporal-temporal intersection with coordinate values" << std::endl;
     
@@ -132,16 +132,16 @@ VarVal TemporalIntersectsGeometryPhysicalFunction::executeTemporal6Param(const s
 VarVal TemporalIntersectsGeometryPhysicalFunction::executeTemporal4Param(const std::vector<VarVal>& params) const
 {
     // Extract values: lon1, lat1, timestamp1, static_geometry_wkt
-    auto lon1 = params[0].cast<nautilus::val<double>>();
-    auto lat1 = params[1].cast<nautilus::val<double>>();
-    auto timestamp1 = params[2].cast<nautilus::val<uint64_t>>();
-    auto static_geometry_varsized = params[3].cast<VariableSizedData>();
+    auto lon1 = params[0].getRawValueAs<nautilus::val<double>>();
+    auto lat1 = params[1].getRawValueAs<nautilus::val<double>>();
+    auto timestamp1 = params[2].getRawValueAs<nautilus::val<uint64_t>>();
+    auto static_geometry_varsized = params[3].getRawValueAs<VariableSizedData>();
     
     std::cout << "4-param temporal-static intersection with coordinate values" << std::endl;
     
     // Call MEOS: eintersects_tgeo_geo(temporal, static)
     const auto result = nautilus::invoke(
-        +[](double lon1_val, double lat1_val, uint64_t ts1_val, const char* static_geom_ptr, uint32_t static_geom_size) -> int {
+        +[](double lon1_val, double lat1_val, uint64_t ts1_val, int8_t* static_geom_ptr, uint64_t static_geom_size) -> int {
             try {
                 MEOS::Meos::ensureMeosInitialized();
                 if (!(lon1_val >= -180.0 && lon1_val <= 180.0 && lat1_val >= -90.0 && lat1_val <= 90.0)) {
@@ -154,7 +154,7 @@ VarVal TemporalIntersectsGeometryPhysicalFunction::executeTemporal4Param(const s
                 std::string left_wkt = fmt::format("SRID=4326;Point({} {})@{}", lon1_val, lat1_val, ts_str);
 
                 // Parse static WKT
-                std::string right_wkt(static_geom_ptr, static_geom_size);
+                std::string right_wkt(reinterpret_cast<const char*>(static_geom_ptr), static_geom_size);
                 while (!right_wkt.empty() && (right_wkt.front()=='\'' || right_wkt.front()=='"')) right_wkt.erase(right_wkt.begin());
                 while (!right_wkt.empty() && (right_wkt.back()=='\'' || right_wkt.back()=='"')) right_wkt.pop_back();
                 if (left_wkt.empty() || right_wkt.empty()) return 0;
@@ -166,7 +166,7 @@ VarVal TemporalIntersectsGeometryPhysicalFunction::executeTemporal4Param(const s
                 return MEOS::Meos::safe_eintersects_tgeo_geo(static_cast<const Temporal*>(left.getGeometry()), static_cast<const GSERIALIZED*>(right.getGeometry()));
             } catch (...) { return -1; }
         },
-        lon1, lat1, timestamp1, static_geometry_varsized.getContent(), static_geometry_varsized.getContentSize());
+        lon1, lat1, timestamp1, static_geometry_varsized.getContent(), static_geometry_varsized.getSize());
     
     return VarVal(result);
 }

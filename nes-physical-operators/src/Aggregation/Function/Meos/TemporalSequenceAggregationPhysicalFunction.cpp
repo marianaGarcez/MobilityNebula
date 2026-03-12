@@ -27,7 +27,6 @@
 #include <cstdio>
 #include <string>
 
-#include <MemoryLayout/ColumnLayout.hpp>
 #include <Nautilus/Interface/BufferRef/TupleBufferRef.hpp>
 #include <Nautilus/Interface/PagedVector/PagedVector.hpp>
 #include <Nautilus/Interface/PagedVector/PagedVectorRef.hpp>
@@ -63,8 +62,8 @@ TemporalSequenceAggregationPhysicalFunction::TemporalSequenceAggregationPhysical
     PhysicalFunction lonFunctionParam,
     PhysicalFunction latFunctionParam,
     PhysicalFunction timestampFunctionParam,
-    Nautilus::Record::RecordFieldIdentifier resultFieldIdentifier,
-    std::shared_ptr<Nautilus::Interface::BufferRef::TupleBufferRef> bufferRef)
+    Record::RecordFieldIdentifier resultFieldIdentifier,
+    std::shared_ptr<TupleBufferRef> bufferRef)
     : AggregationPhysicalFunction(std::move(inputType), std::move(resultType), lonFunctionParam, std::move(resultFieldIdentifier))
     , bufferRef(std::move(bufferRef))
     , lonFunction(std::move(lonFunctionParam))
@@ -74,9 +73,9 @@ TemporalSequenceAggregationPhysicalFunction::TemporalSequenceAggregationPhysical
 }
 
 void TemporalSequenceAggregationPhysicalFunction::lift(
-    const nautilus::val<AggregationState*>& aggregationState, PipelineMemoryProvider& pipelineMemoryProvider, const Nautilus::Record& record)
+    const nautilus::val<AggregationState*>& aggregationState, PipelineMemoryProvider& pipelineMemoryProvider, const Record& record)
 {
-    const auto pagedVectorPtr = static_cast<nautilus::val<Nautilus::Interface::PagedVector*>>(aggregationState);
+    const auto pagedVectorPtr = static_cast<nautilus::val<PagedVector*>>(aggregationState);
 
     // For TEMPORAL_SEQUENCE, we need to store lon, lat, and timestamp values
     auto lonValue = lonFunction.execute(record, pipelineMemoryProvider.arena);
@@ -90,7 +89,7 @@ void TemporalSequenceAggregationPhysicalFunction::lift(
         {std::string(TimestampFieldName), timestampValue}
     });
 
-    const Nautilus::Interface::PagedVectorRef pagedVectorRef(pagedVectorPtr, bufferRef);
+    const PagedVectorRef pagedVectorRef(pagedVectorPtr, bufferRef);
     pagedVectorRef.writeRecord(aggregateStateRecord, pipelineMemoryProvider.bufferProvider);
 }
 
@@ -100,29 +99,29 @@ void TemporalSequenceAggregationPhysicalFunction::combine(
     PipelineMemoryProvider&)
 {
     // Getting the paged vectors from the aggregation states
-    const auto memArea1 = static_cast<nautilus::val<Nautilus::Interface::PagedVector*>>(aggregationState1);
-    const auto memArea2 = static_cast<nautilus::val<Nautilus::Interface::PagedVector*>>(aggregationState2);
+    const auto memArea1 = static_cast<nautilus::val<PagedVector*>>(aggregationState1);
+    const auto memArea2 = static_cast<nautilus::val<PagedVector*>>(aggregationState2);
 
     // Calling the copyFrom function of the paged vector to combine the two paged vectors by copying the content of the second paged vector to the first paged vector
     nautilus::invoke(
-        +[](Nautilus::Interface::PagedVector* vector1, const Nautilus::Interface::PagedVector* vector2) -> void
+        +[](PagedVector* vector1, const PagedVector* vector2) -> void
         { vector1->copyFrom(*vector2); },
         memArea1,
         memArea2);
 }
 
-Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
+Record TemporalSequenceAggregationPhysicalFunction::lower(
     const nautilus::val<AggregationState*> aggregationState, PipelineMemoryProvider& pipelineMemoryProvider)
 {
     // Ensure MEOS is initialized
     MEOS::Meos::ensureMeosInitialized();
 
     // Getting the paged vector from the aggregation state
-    const auto pagedVectorPtr = static_cast<nautilus::val<Nautilus::Interface::PagedVector*>>(aggregationState);
-    const Nautilus::Interface::PagedVectorRef pagedVectorRef(pagedVectorPtr, bufferRef);
-    const auto allFieldNames = bufferRef->getMemoryLayout()->getSchema().getFieldNames();
+    const auto pagedVectorPtr = static_cast<nautilus::val<PagedVector*>>(aggregationState);
+    const PagedVectorRef pagedVectorRef(pagedVectorPtr, bufferRef);
+    const auto allFieldNames = bufferRef->getAllFieldNames();
     const auto numberOfEntries = invoke(
-        +[](const Nautilus::Interface::PagedVector* pagedVector)
+        +[](const PagedVector* pagedVector)
         {
             return pagedVector->getTotalNumberOfEntries();
         },
@@ -144,7 +143,7 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
             variableSized.getContent(),
             strLen);
 
-        Nautilus::Record resultRecord;
+        Record resultRecord;
         resultRecord.write(resultFieldIdentifier, variableSized);
         return resultRecord;
     }
@@ -153,7 +152,7 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
     // For single point: Point(-73.9857 40.7484)@2000-01-01 08:00:00
     // For multiple points: {Point(-73.9857 40.7484)@2000-01-01 08:00:00, Point(-73.9787 40.7505)@2000-01-01 08:05:00}
     auto trajectoryStr = nautilus::invoke(
-        +[](const Nautilus::Interface::PagedVector* pagedVector) -> char*
+        +[](const PagedVector* pagedVector) -> char*
         {
             // Allocate a buffer for the trajectory string
             // Each point is approximately 100 chars: Point(-123.456789 12.345678)@2000-01-01 08:00:00
@@ -184,9 +183,9 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
         const auto latValue = itemRecord.read(std::string(LatFieldName));
         const auto timestampValue = itemRecord.read(std::string(TimestampFieldName));
 
-        auto lon = lonValue.cast<nautilus::val<double>>();
-        auto lat = latValue.cast<nautilus::val<double>>();
-        auto timestamp = timestampValue.cast<nautilus::val<int64_t>>();
+        auto lon = lonValue.getRawValueAs<nautilus::val<double>>();
+        auto lat = latValue.getRawValueAs<nautilus::val<double>>();
+        auto timestamp = timestampValue.getRawValueAs<nautilus::val<int64_t>>();
 
         // Append point to trajectory string in MEOS format
         trajectoryStr = nautilus::invoke(
@@ -288,7 +287,7 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
     if (binarySize == nautilus::val<size_t>(0)) {
         // Return empty record or handle error appropriately
         auto emptyVariableSized = pipelineMemoryProvider.arena.allocateVariableSizedData(0);
-        Nautilus::Record resultRecord;
+        Record resultRecord;
         resultRecord.write(resultFieldIdentifier, emptyVariableSized);
         return resultRecord;
     }
@@ -343,7 +342,7 @@ Nautilus::Record TemporalSequenceAggregationPhysicalFunction::lower(
         nautilus::val<size_t>(formatStrLen),
         binarySize);
 
-    Nautilus::Record resultRecord;
+    Record resultRecord;
     resultRecord.write(resultFieldIdentifier, variableSized);
 
     return resultRecord;
@@ -355,15 +354,15 @@ void TemporalSequenceAggregationPhysicalFunction::reset(const nautilus::val<Aggr
         +[](AggregationState* pagedVectorMemArea) -> void
         {
             // Allocates a new PagedVector in the memory area provided by the pointer to the pagedvector
-            auto* pagedVector = reinterpret_cast<Nautilus::Interface::PagedVector*>(pagedVectorMemArea);
-            new (pagedVector) Nautilus::Interface::PagedVector();
+            auto* pagedVector = reinterpret_cast<PagedVector*>(pagedVectorMemArea);
+            new (pagedVector) PagedVector();
         },
         aggregationState);
 }
 
 size_t TemporalSequenceAggregationPhysicalFunction::getSizeOfStateInBytes() const
 {
-    return sizeof(Nautilus::Interface::PagedVector);
+    return sizeof(PagedVector);
 }
 void TemporalSequenceAggregationPhysicalFunction::cleanup(nautilus::val<AggregationState*> aggregationState)
 {
@@ -371,7 +370,7 @@ void TemporalSequenceAggregationPhysicalFunction::cleanup(nautilus::val<Aggregat
         +[](AggregationState* pagedVectorMemArea) -> void
         {
             // Calls the destructor of the PagedVector
-            auto* pagedVector = reinterpret_cast<Nautilus::Interface::PagedVector*>(
+            auto* pagedVector = reinterpret_cast<PagedVector*>(
                 pagedVectorMemArea); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
             pagedVector->~PagedVector();
         },

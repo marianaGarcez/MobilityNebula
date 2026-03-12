@@ -12,109 +12,182 @@
     limitations under the License.
 */
 
+#include <Operators/Windows/Aggregations/Meos/VarAggregationLogicalFunction.hpp>
+
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <DataTypes/DataType.hpp>
 #include <DataTypes/DataTypeProvider.hpp>
 #include <DataTypes/Schema.hpp>
 #include <Functions/FieldAccessLogicalFunction.hpp>
 #include <Functions/LogicalFunction.hpp>
-#include <Operators/Windows/Aggregations/Meos/VarAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/WindowAggregationLogicalFunction.hpp>
+#include <Util/Reflection.hpp>
+#include <fmt/format.h>
 #include <AggregationLogicalFunctionRegistry.hpp>
 #include <ErrorHandling.hpp>
 #include <SerializableVariantDescriptor.pb.h>
 
 namespace NES
 {
-VarAggregationLogicalFunction::VarAggregationLogicalFunction(const FieldAccessLogicalFunction& field)
-    : WindowAggregationLogicalFunction(
-          field.getDataType(),
-          DataTypeProvider::provideDataType(partialAggregateStampType),
-          DataTypeProvider::provideDataType(finalAggregateStampType),
-          field)
+VarAggregationLogicalFunction::VarAggregationLogicalFunction(const FieldAccessLogicalFunction& field) : onField(field), asField(field)
 {
 }
 
-VarAggregationLogicalFunction::VarAggregationLogicalFunction(
-    const FieldAccessLogicalFunction& field, const FieldAccessLogicalFunction& asField)
-    : WindowAggregationLogicalFunction(
-          field.getDataType(),
-          DataTypeProvider::provideDataType(partialAggregateStampType),
-          DataTypeProvider::provideDataType(finalAggregateStampType),
-          field,
-          asField)
+VarAggregationLogicalFunction::VarAggregationLogicalFunction(const FieldAccessLogicalFunction& field, FieldAccessLogicalFunction asField)
+    : onField(field), asField(std::move(asField))
 {
 }
 
-std::shared_ptr<WindowAggregationLogicalFunction>
-VarAggregationLogicalFunction::create(const FieldAccessLogicalFunction& onField, const FieldAccessLogicalFunction& asField)
+bool VarAggregationLogicalFunction::shallIncludeNullValues() noexcept
 {
-    return std::make_shared<VarAggregationLogicalFunction>(onField, asField);
+    return true;
 }
 
-std::shared_ptr<WindowAggregationLogicalFunction> VarAggregationLogicalFunction::create(const FieldAccessLogicalFunction& onField)
-{
-    return std::make_shared<VarAggregationLogicalFunction>(onField);
-}
-
-std::string_view VarAggregationLogicalFunction::getName() const noexcept
+std::string_view VarAggregationLogicalFunction::getName() noexcept
 {
     return NAME;
 }
 
-void VarAggregationLogicalFunction::inferStamp(const Schema& schema)
+VarAggregationLogicalFunction VarAggregationLogicalFunction::withInferredStamp(const Schema& schema) const
 {
     /// We first infer the dataType of the input field and set the output dataType as the same.
-    auto newOnField = onField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
-    INVARIANT(newOnField.getDataType().isNumeric(), "aggregations on non numeric fields is not supported.");
+    auto newOnField = this->getOnField().withInferredDataType(schema);
+    if (not newOnField.getDataType().isNumeric())
+    {
+        throw CannotDeserialize("aggregations on non numeric fields is not supported.");
+    }
 
     /// For variance calculation, we need to store sum, sum of squares, and count
     /// Cast the input to FLOAT64 to avoid overflow and ensure precision
-    newOnField = newOnField.withDataType(DataTypeProvider::provideDataType(DataType::Type::FLOAT64)).get<FieldAccessLogicalFunction>();
+    newOnField = newOnField.withDataType(DataTypeProvider::provideDataType(
+        DataType::Type::FLOAT64, newOnField.getDataType().nullable ? DataType::NULLABLE::IS_NULLABLE : DataType::NULLABLE::NOT_NULLABLE));
 
     ///Set fully qualified name for the as Field
-    const auto onFieldName = newOnField.getFieldName();
-    const auto asFieldName = asField.getFieldName();
-
+    const auto onFieldName = newOnField.getAs<FieldAccessLogicalFunction>()->getFieldName();
+    const auto asFieldName = this->getAsField().getFieldName();
     const auto attributeNameResolver = onFieldName.substr(0, onFieldName.find(Schema::ATTRIBUTE_NAME_SEPARATOR) + 1);
+
+    std::string newAsFieldName;
     ///If on and as field name are different then append the attribute name resolver from on field to the as field
     if (asFieldName.find(Schema::ATTRIBUTE_NAME_SEPARATOR) == std::string::npos)
     {
-        asField = asField.withFieldName(attributeNameResolver + asFieldName).get<FieldAccessLogicalFunction>();
+        newAsFieldName = attributeNameResolver + asFieldName;
     }
     else
     {
         const auto fieldName = asFieldName.substr(asFieldName.find_last_of(Schema::ATTRIBUTE_NAME_SEPARATOR) + 1);
-        asField = asField.withFieldName(attributeNameResolver + fieldName).get<FieldAccessLogicalFunction>();
+        newAsFieldName = attributeNameResolver + fieldName;
     }
-    auto newAsField = asField.withDataType(getFinalAggregateStamp());
-    asField = newAsField.get<FieldAccessLogicalFunction>();
-    onField = newOnField;
-    inputStamp = newOnField.getDataType();
+
+    const auto newFinalAggregateStamp = DataTypeProvider::provideDataType(
+        DataType::Type::FLOAT64, newOnField.getDataType().nullable ? DataType::NULLABLE::IS_NULLABLE : DataType::NULLABLE::NOT_NULLABLE);
+    return this->withOnField(newOnField.getAs<FieldAccessLogicalFunction>().get())
+        .withFinalAggregateStamp(newFinalAggregateStamp)
+        .withAsField(this->getAsField().withFieldName(newAsFieldName).withDataType(newFinalAggregateStamp))
+        .withInputStamp(newOnField.getDataType());
 }
 
-NES::SerializableAggregationFunction VarAggregationLogicalFunction::serialize() const
+Reflected VarAggregationLogicalFunction::reflect() const
 {
-    NES::SerializableAggregationFunction serializedAggregationFunction;
-    serializedAggregationFunction.set_type(NAME);
+    return NES::reflect(this);
+}
 
-    auto onFieldFuc = SerializableFunction();
-    onFieldFuc.CopyFrom(onField.serialize());
+Reflected Reflector<VarAggregationLogicalFunction>::operator()(const VarAggregationLogicalFunction& function) const
+{
+    return reflect(detail::ReflectedVarAggregationLogicalFunction{.onField = function.getOnField(), .asField = function.getAsField()});
+}
 
-    auto asFieldFuc = SerializableFunction();
-    asFieldFuc.CopyFrom(asField.serialize());
-
-    serializedAggregationFunction.mutable_as_field()->CopyFrom(asFieldFuc);
-    serializedAggregationFunction.mutable_on_field()->CopyFrom(onFieldFuc);
-    return serializedAggregationFunction;
+VarAggregationLogicalFunction Unreflector<VarAggregationLogicalFunction>::operator()(const Reflected& reflected) const
+{
+    auto [onField, asField] = unreflect<detail::ReflectedVarAggregationLogicalFunction>(reflected);
+    return VarAggregationLogicalFunction{onField, asField};
 }
 
 AggregationLogicalFunctionRegistryReturnType
 AggregationLogicalFunctionGeneratedRegistrar::RegisterVarAggregationLogicalFunction(AggregationLogicalFunctionRegistryArguments arguments)
 {
-    PRECONDITION(
-        arguments.fields.size() == 2, "VarAggregationLogicalFunction requires exactly two fields, but got {}", arguments.fields.size());
-    return VarAggregationLogicalFunction::create(arguments.fields[0], arguments.fields[1]);
+    if (!arguments.reflected.isEmpty())
+    {
+        return std::make_shared<WindowAggregationLogicalFunction>(unreflect<VarAggregationLogicalFunction>(arguments.reflected));
+    }
+
+    if (arguments.fields.size() != 2)
+    {
+        throw CannotDeserialize("VarAggregationLogicalFunction requires exactly two fields, but got {}", arguments.fields.size());
+    }
+    return std::make_shared<WindowAggregationLogicalFunction>(VarAggregationLogicalFunction(arguments.fields[0], arguments.fields[1]));
+}
+
+std::string VarAggregationLogicalFunction::toString() const
+{
+    return fmt::format("WindowAggregation: onField={} asField={}", onField, asField);
+}
+
+DataType VarAggregationLogicalFunction::getInputStamp() const
+{
+    return inputStamp;
+}
+
+DataType VarAggregationLogicalFunction::getPartialAggregateStamp() const
+{
+    return partialAggregateStamp;
+}
+
+DataType VarAggregationLogicalFunction::getFinalAggregateStamp() const
+{
+    return finalAggregateStamp;
+}
+
+FieldAccessLogicalFunction VarAggregationLogicalFunction::getOnField() const
+{
+    return onField;
+}
+
+FieldAccessLogicalFunction VarAggregationLogicalFunction::getAsField() const
+{
+    return asField;
+}
+
+VarAggregationLogicalFunction VarAggregationLogicalFunction::withInputStamp(DataType inputStamp) const
+{
+    auto copy = *this;
+    copy.inputStamp = std::move(inputStamp);
+    return copy;
+}
+
+VarAggregationLogicalFunction VarAggregationLogicalFunction::withPartialAggregateStamp(DataType partialAggregateStamp) const
+{
+    auto copy = *this;
+    copy.partialAggregateStamp = std::move(partialAggregateStamp);
+    return copy;
+}
+
+VarAggregationLogicalFunction VarAggregationLogicalFunction::withFinalAggregateStamp(DataType finalAggregateStamp) const
+{
+    auto copy = *this;
+    copy.finalAggregateStamp = std::move(finalAggregateStamp);
+    return copy;
+}
+
+VarAggregationLogicalFunction VarAggregationLogicalFunction::withOnField(FieldAccessLogicalFunction onField) const
+{
+    auto copy = *this;
+    copy.onField = std::move(onField);
+    return copy;
+}
+
+VarAggregationLogicalFunction VarAggregationLogicalFunction::withAsField(FieldAccessLogicalFunction asField) const
+{
+    auto copy = *this;
+    copy.asField = std::move(asField);
+    return copy;
+}
+
+bool VarAggregationLogicalFunction::operator==(const VarAggregationLogicalFunction& other) const
+{
+    return this->onField == other.onField && this->asField == other.asField;
 }
 }

@@ -14,41 +14,91 @@
 
 #pragma once
 
+#include <string>
+#include <string_view>
+#include <DataTypes/DataType.hpp>
+#include <DataTypes/Schema.hpp>
+#include <Functions/FieldAccessLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/WindowAggregationLogicalFunction.hpp>
+#include <Util/Reflection.hpp>
+#include <SerializableVariantDescriptor.pb.h>
 
 namespace NES
 {
 
-class TemporalSequenceAggregationLogicalFunctionV2 : public WindowAggregationLogicalFunction
+class TemporalSequenceAggregationLogicalFunctionV2 final
 {
 public:
-    static std::shared_ptr<WindowAggregationLogicalFunction>
-    create(const FieldAccessLogicalFunction& lonField, const FieldAccessLogicalFunction& latField, const FieldAccessLogicalFunction& timestampField);
-
     TemporalSequenceAggregationLogicalFunctionV2(
         const FieldAccessLogicalFunction& lonField,
         const FieldAccessLogicalFunction& latField,
         const FieldAccessLogicalFunction& timestampField,
-        const FieldAccessLogicalFunction& asField);
+        FieldAccessLogicalFunction asField);
 
-    void inferStamp(const Schema& schema) override;
-    ~TemporalSequenceAggregationLogicalFunctionV2() override = default;
-    [[nodiscard]] NES::SerializableAggregationFunction serialize() const override;
-    [[nodiscard]] std::string_view getName() const noexcept override;
-    [[nodiscard]] bool requiresSequentialAggregation() const { return true; }
+    static TemporalSequenceAggregationLogicalFunctionV2
+    create(const FieldAccessLogicalFunction& lonField, const FieldAccessLogicalFunction& latField, const FieldAccessLogicalFunction& timestampField);
 
-    // Accessors for lowering to physical implementation
-    [[nodiscard]] const FieldAccessLogicalFunction& getLonField() const noexcept { return lonField; }
-    [[nodiscard]] const FieldAccessLogicalFunction& getLatField() const noexcept { return latField; }
-    [[nodiscard]] const FieldAccessLogicalFunction& getTimestampField() const noexcept { return timestampField; }
+    ~TemporalSequenceAggregationLogicalFunctionV2() = default;
+
+    [[nodiscard]] static std::string_view getName() noexcept;
+    [[nodiscard]] std::string toString() const;
+    [[nodiscard]] DataType getInputStamp() const;
+    [[nodiscard]] DataType getPartialAggregateStamp() const;
+    [[nodiscard]] DataType getFinalAggregateStamp() const;
+    [[nodiscard]] FieldAccessLogicalFunction getOnField() const;
+    [[nodiscard]] FieldAccessLogicalFunction getAsField() const;
+    [[nodiscard]] FieldAccessLogicalFunction getLonField() const;
+    [[nodiscard]] FieldAccessLogicalFunction getLatField() const;
+    [[nodiscard]] FieldAccessLogicalFunction getTimestampField() const;
+
+    [[nodiscard]] Reflected reflect() const;
+    [[nodiscard]] TemporalSequenceAggregationLogicalFunctionV2 withInferredStamp(const Schema& schema) const;
+    [[nodiscard]] TemporalSequenceAggregationLogicalFunctionV2 withInputStamp(DataType inputStamp) const;
+    [[nodiscard]] TemporalSequenceAggregationLogicalFunctionV2 withPartialAggregateStamp(DataType partialAggregateStamp) const;
+    [[nodiscard]] TemporalSequenceAggregationLogicalFunctionV2 withFinalAggregateStamp(DataType finalAggregateStamp) const;
+    [[nodiscard]] TemporalSequenceAggregationLogicalFunctionV2 withOnField(FieldAccessLogicalFunction onField) const;
+    [[nodiscard]] TemporalSequenceAggregationLogicalFunctionV2 withAsField(FieldAccessLogicalFunction asField) const;
+    [[nodiscard]] static bool shallIncludeNullValues() noexcept;
+
+    [[nodiscard]] bool operator==(const TemporalSequenceAggregationLogicalFunctionV2& other) const;
 
 private:
     static constexpr std::string_view NAME = "TemporalSequence";
-    static constexpr DataType::Type partialAggregateStampType = DataType::Type::UNDEFINED;
-    static constexpr DataType::Type finalAggregateStampType = DataType::Type::VARSIZED;
 
+    DataType inputStamp;
+    DataType partialAggregateStamp;
+    DataType finalAggregateStamp;
+    FieldAccessLogicalFunction onField;
+    FieldAccessLogicalFunction asField;
     FieldAccessLogicalFunction lonField;
     FieldAccessLogicalFunction latField;
     FieldAccessLogicalFunction timestampField;
 };
+
+static_assert(WindowAggregationFunctionConcept<TemporalSequenceAggregationLogicalFunctionV2>);
+
+template <>
+struct Reflector<TemporalSequenceAggregationLogicalFunctionV2>
+{
+    Reflected operator()(const TemporalSequenceAggregationLogicalFunctionV2& function) const;
+};
+
+template <>
+struct Unreflector<TemporalSequenceAggregationLogicalFunctionV2>
+{
+    TemporalSequenceAggregationLogicalFunctionV2 operator()(const Reflected& reflected) const;
+};
+}
+
+namespace NES::detail
+{
+struct ReflectedTemporalSequenceAggregationLogicalFunctionV2
+{
+    FieldAccessLogicalFunction onField;
+    FieldAccessLogicalFunction asField;
+    FieldAccessLogicalFunction lonField;
+    FieldAccessLogicalFunction latField;
+    FieldAccessLogicalFunction timestampField;
+};
+
 }

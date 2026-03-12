@@ -37,7 +37,7 @@ VarAggregationFunction::VarAggregationFunction(
     DataType inputType,
     DataType resultType,
     PhysicalFunction inputFunction,
-    Nautilus::Record::RecordFieldIdentifier resultFieldIdentifier,
+    Record::RecordFieldIdentifier resultFieldIdentifier,
     DataType countType)
     : AggregationPhysicalFunction(std::move(inputType), std::move(resultType), std::move(inputFunction), std::move(resultFieldIdentifier))
     , countType(std::move(countType))
@@ -47,17 +47,17 @@ VarAggregationFunction::VarAggregationFunction(
 void VarAggregationFunction::lift(
     const nautilus::val<AggregationState*>& aggregationState,
     PipelineMemoryProvider& pipelineMemoryProvider,
-    const Nautilus::Record& record)
+    const Record& record)
 {
     /// Reading old min, max, and count from the aggregation state.
     /// Memory layout: [min] [max] [count]
     const auto memAreaMin = static_cast<nautilus::val<int8_t*>>(aggregationState);
-    const auto memAreaMax = static_cast<nautilus::val<int8_t*>>(aggregationState) + nautilus::val<uint64_t>(inputType.getSizeInBytes());
-    const auto memAreaCount = static_cast<nautilus::val<int8_t*>>(aggregationState) + nautilus::val<uint64_t>(2 * inputType.getSizeInBytes());
+    const auto memAreaMax = static_cast<nautilus::val<int8_t*>>(aggregationState) + nautilus::val<uint64_t>(inputType.getSizeInBytesWithoutNull());
+    const auto memAreaCount = static_cast<nautilus::val<int8_t*>>(aggregationState) + nautilus::val<uint64_t>(2 * inputType.getSizeInBytesWithoutNull());
     
-    const auto min = Nautilus::VarVal::readVarValFromMemory(memAreaMin, inputType.type);
-    const auto max = Nautilus::VarVal::readVarValFromMemory(memAreaMax, inputType.type);
-    const auto count = Nautilus::VarVal::readVarValFromMemory(memAreaCount, countType.type);
+    const auto min = VarVal::readNonNullableVarValFromMemory(memAreaMin, inputType);
+    const auto max = VarVal::readNonNullableVarValFromMemory(memAreaMax, inputType);
+    const auto count = VarVal::readNonNullableVarValFromMemory(memAreaCount, countType);
 
     /// Getting the new value and updating the aggregates
     const auto value = inputFunction.execute(record, pipelineMemoryProvider.arena);
@@ -86,21 +86,21 @@ void VarAggregationFunction::combine(
 {
     /// Reading the aggregates from the first aggregation state
     const auto memAreaMin1 = static_cast<nautilus::val<int8_t*>>(aggregationState1);
-    const auto memAreaMax1 = static_cast<nautilus::val<int8_t*>>(aggregationState1) + nautilus::val<uint64_t>(inputType.getSizeInBytes());
-    const auto memAreaCount1 = static_cast<nautilus::val<int8_t*>>(aggregationState1) + nautilus::val<uint64_t>(2 * inputType.getSizeInBytes());
+    const auto memAreaMax1 = static_cast<nautilus::val<int8_t*>>(aggregationState1) + nautilus::val<uint64_t>(inputType.getSizeInBytesWithoutNull());
+    const auto memAreaCount1 = static_cast<nautilus::val<int8_t*>>(aggregationState1) + nautilus::val<uint64_t>(2 * inputType.getSizeInBytesWithoutNull());
     
-    const auto min1 = Nautilus::VarVal::readVarValFromMemory(memAreaMin1, inputType.type);
-    const auto max1 = Nautilus::VarVal::readVarValFromMemory(memAreaMax1, inputType.type);
-    const auto count1 = Nautilus::VarVal::readVarValFromMemory(memAreaCount1, countType.type);
+    const auto min1 = VarVal::readNonNullableVarValFromMemory(memAreaMin1, inputType);
+    const auto max1 = VarVal::readNonNullableVarValFromMemory(memAreaMax1, inputType);
+    const auto count1 = VarVal::readNonNullableVarValFromMemory(memAreaCount1, countType);
 
     /// Reading the aggregates from the second aggregation state
     const auto memAreaMin2 = static_cast<nautilus::val<int8_t*>>(aggregationState2);
-    const auto memAreaMax2 = static_cast<nautilus::val<int8_t*>>(aggregationState2) + nautilus::val<uint64_t>(inputType.getSizeInBytes());
-    const auto memAreaCount2 = static_cast<nautilus::val<int8_t*>>(aggregationState2) + nautilus::val<uint64_t>(2 * inputType.getSizeInBytes());
+    const auto memAreaMax2 = static_cast<nautilus::val<int8_t*>>(aggregationState2) + nautilus::val<uint64_t>(inputType.getSizeInBytesWithoutNull());
+    const auto memAreaCount2 = static_cast<nautilus::val<int8_t*>>(aggregationState2) + nautilus::val<uint64_t>(2 * inputType.getSizeInBytesWithoutNull());
     
-    const auto min2 = Nautilus::VarVal::readVarValFromMemory(memAreaMin2, inputType.type);
-    const auto max2 = Nautilus::VarVal::readVarValFromMemory(memAreaMax2, inputType.type);
-    const auto count2 = Nautilus::VarVal::readVarValFromMemory(memAreaCount2, countType.type);
+    const auto min2 = VarVal::readNonNullableVarValFromMemory(memAreaMin2, inputType);
+    const auto max2 = VarVal::readNonNullableVarValFromMemory(memAreaMax2, inputType);
+    const auto count2 = VarVal::readNonNullableVarValFromMemory(memAreaCount2, countType);
 
     /// Combining the aggregates
     /// Update min if min2 is smaller
@@ -120,16 +120,16 @@ void VarAggregationFunction::combine(
     newCount.writeToMemory(memAreaCount1);
 }
 
-Nautilus::Record VarAggregationFunction::lower(const nautilus::val<AggregationState*> aggregationState, PipelineMemoryProvider&)
+Record VarAggregationFunction::lower(const nautilus::val<AggregationState*> aggregationState, PipelineMemoryProvider&)
 {
     /// Reading the aggregates from the aggregation state
     const auto memAreaMin = static_cast<nautilus::val<int8_t*>>(aggregationState);
-    const auto memAreaMax = static_cast<nautilus::val<int8_t*>>(aggregationState) + nautilus::val<uint64_t>(inputType.getSizeInBytes());
-    const auto memAreaCount = static_cast<nautilus::val<int8_t*>>(aggregationState) + nautilus::val<uint64_t>(2 * inputType.getSizeInBytes());
+    const auto memAreaMax = static_cast<nautilus::val<int8_t*>>(aggregationState) + nautilus::val<uint64_t>(inputType.getSizeInBytesWithoutNull());
+    const auto memAreaCount = static_cast<nautilus::val<int8_t*>>(aggregationState) + nautilus::val<uint64_t>(2 * inputType.getSizeInBytesWithoutNull());
     
-    const auto min = Nautilus::VarVal::readVarValFromMemory(memAreaMin, inputType.type);
-    const auto max = Nautilus::VarVal::readVarValFromMemory(memAreaMax, inputType.type);
-    const auto count = Nautilus::VarVal::readVarValFromMemory(memAreaCount, countType.type);
+    const auto min = VarVal::readNonNullableVarValFromMemory(memAreaMin, inputType);
+    const auto max = VarVal::readNonNullableVarValFromMemory(memAreaMax, inputType);
+    const auto count = VarVal::readNonNullableVarValFromMemory(memAreaCount, countType);
 
     /// Calculate variance as max - min
     /// Cast to result type for consistency
@@ -137,26 +137,26 @@ Nautilus::Record VarAggregationFunction::lower(const nautilus::val<AggregationSt
     const auto maxFloat = max.castToType(resultType.type);
     const auto variance = maxFloat - minFloat;
     
-    return Nautilus::Record({{resultFieldIdentifier, variance}});
+    return Record({{resultFieldIdentifier, variance}});
 }
 
 void VarAggregationFunction::reset(const nautilus::val<AggregationState*> aggregationState, PipelineMemoryProvider&)
 {
     /// Reset min to maximum value, max to minimum value, and count to 0
     const auto memAreaMin = static_cast<nautilus::val<int8_t*>>(aggregationState);
-    const auto memAreaMax = static_cast<nautilus::val<int8_t*>>(aggregationState) + nautilus::val<uint64_t>(inputType.getSizeInBytes());
-    const auto memAreaCount = static_cast<nautilus::val<int8_t*>>(aggregationState) + nautilus::val<uint64_t>(2 * inputType.getSizeInBytes());
+    const auto memAreaMax = static_cast<nautilus::val<int8_t*>>(aggregationState) + nautilus::val<uint64_t>(inputType.getSizeInBytesWithoutNull());
+    const auto memAreaCount = static_cast<nautilus::val<int8_t*>>(aggregationState) + nautilus::val<uint64_t>(2 * inputType.getSizeInBytesWithoutNull());
     
     /// Initialize min with max value
-    const auto minInit = Nautilus::Util::createNautilusMaxValue(inputType.type);
+    const auto minInit = createNautilusMaxValue(inputType.type);
     minInit.writeToMemory(memAreaMin);
     
     /// Initialize max with min value
-    const auto maxInit = Nautilus::Util::createNautilusMinValue(inputType.type);
+    const auto maxInit = createNautilusMinValue(inputType.type);
     maxInit.writeToMemory(memAreaMax);
     
     /// Initialize count to 0 using memset
-    nautilus::memset(memAreaCount, 0, countType.getSizeInBytes());
+    nautilus::memset(memAreaCount, 0, countType.getSizeInBytesWithoutNull());
 }
 
 void VarAggregationFunction::cleanup(nautilus::val<AggregationState*>)
@@ -167,8 +167,8 @@ size_t VarAggregationFunction::getSizeOfStateInBytes() const
 {
     /// Size of min + size of max + size of count
     /// We need to store min and max as the same type as input, and count as countType
-    const auto inputSize = inputType.getSizeInBytes();
-    const auto countTypeSize = countType.getSizeInBytes();
+    const auto inputSize = inputType.getSizeInBytesWithoutNull();
+    const auto countTypeSize = countType.getSizeInBytesWithoutNull();
     return 2 * inputSize + countTypeSize; // min + max + count
 }
 

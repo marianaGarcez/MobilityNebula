@@ -39,9 +39,9 @@ VarVal TemporalIntersectsPhysicalFunction::execute(const Record& record, ArenaRe
     std::cout << "TemporalIntersectsPhysicalFunction::execute called" << std::endl;
     
     // Extract nautilus::val<double> values from VarVal 
-    auto lon_val = lonValue.cast<nautilus::val<double>>();
-    auto lat_val = latValue.cast<nautilus::val<double>>();
-    auto ts_val = tsValue.cast<nautilus::val<double>>();
+    auto lon_val = lonValue.getRawValueAs<nautilus::val<double>>();
+    auto lat_val = latValue.getRawValueAs<nautilus::val<double>>();
+    auto ts_val = tsValue.getRawValueAs<nautilus::val<double>>();
     
     std::cout << "TemporalIntersectsPhysicalFunction processing values" << std::endl;
     
