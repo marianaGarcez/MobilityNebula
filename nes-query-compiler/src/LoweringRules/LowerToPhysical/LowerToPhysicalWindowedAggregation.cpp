@@ -48,6 +48,8 @@
 #include <magic_enum/magic_enum.hpp>
 #include <AggregationPhysicalFunctionRegistry.hpp>
 #include <ErrorHandling.hpp>
+#include <Operators/Windows/Aggregations/Meos/TemporalSequenceAggregationLogicalFunctionV2.hpp>
+#include <Aggregation/Function/Meos/TemporalSequenceAggregationPhysicalFunction.hpp>
 #include <HashMapOptions.hpp>
 #include <LoweringRuleRegistry.hpp>
 #include <PhysicalOperator.hpp>
@@ -126,6 +128,36 @@ getAggregationPhysicalFunctions(const WindowedAggregationLogicalOperator& logica
             = LowerSchemaProvider::lowerSchema(configuration.pageSize.getValue(), logicalOperator.getInputSchemas()[0], memoryLayoutType);
 
         auto name = descriptor->getName();
+
+        // Custom lowering path for TEMPORAL_SEQUENCE: needs three field functions (lon, lat, ts)
+        if (name == std::string_view("TemporalSequence"))
+        {
+            auto tsOpt = descriptor->tryGetAs<TemporalSequenceAggregationLogicalFunctionV2>();
+            PRECONDITION(tsOpt.has_value(), "Expected TemporalSequenceAggregationLogicalFunctionV2 for TemporalSequence");
+            const auto& tsFunc = tsOpt->get();
+
+            auto lonPF = QueryCompilation::FunctionProvider::lowerFunction(tsFunc.getLonField());
+            auto latPF = QueryCompilation::FunctionProvider::lowerFunction(tsFunc.getLatField());
+            auto tsPF = QueryCompilation::FunctionProvider::lowerFunction(tsFunc.getTimestampField());
+
+            Schema stateSchema;
+            stateSchema.addField("lon", tsFunc.getLonField().getDataType());
+            stateSchema.addField("lat", tsFunc.getLatField().getDataType());
+            stateSchema.addField("timestamp", tsFunc.getTimestampField().getDataType());
+            auto tupleBufferRef = LowerSchemaProvider::lowerSchema(configuration.pageSize.getValue(), stateSchema, memoryLayoutType);
+
+            auto phys = std::make_shared<TemporalSequenceAggregationPhysicalFunction>(
+                std::move(physicalInputType),
+                std::move(physicalFinalType),
+                lonPF,
+                latPF,
+                tsPF,
+                resultFieldIdentifier,
+                tupleBufferRef);
+            aggregationPhysicalFunctions.push_back(std::move(phys));
+            continue;
+        }
+
         auto aggregationArguments = AggregationPhysicalFunctionRegistryArguments(
             std::move(physicalInputType),
             std::move(physicalFinalType),

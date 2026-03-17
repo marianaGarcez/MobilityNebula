@@ -17,113 +17,190 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <DataTypes/DataType.hpp>
 #include <DataTypes/DataTypeProvider.hpp>
 #include <DataTypes/Schema.hpp>
 #include <Functions/FieldAccessLogicalFunction.hpp>
-#include <Functions/LogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/WindowAggregationLogicalFunction.hpp>
+#include <Util/Reflection.hpp>
 #include <AggregationLogicalFunctionRegistry.hpp>
 #include <ErrorHandling.hpp>
-#include <SerializableVariantDescriptor.pb.h>
+#include <fmt/format.h>
 
 namespace NES
 {
-// Single-field constructors removed - TEMPORAL_SEQUENCE requires three separate fields
 
 TemporalSequenceAggregationLogicalFunction::TemporalSequenceAggregationLogicalFunction(
-    const FieldAccessLogicalFunction& lonField, const FieldAccessLogicalFunction& latField, const FieldAccessLogicalFunction& timestampField)
-    : WindowAggregationLogicalFunction(
-          lonField.getDataType(),
-          DataTypeProvider::provideDataType(partialAggregateStampType),
-          DataTypeProvider::provideDataType(finalAggregateStampType),
-          lonField),
-      lonField(lonField), latField(latField), timestampField(timestampField)
+    const FieldAccessLogicalFunction& lonField,
+    const FieldAccessLogicalFunction& latField,
+    const FieldAccessLogicalFunction& timestampField)
+    : onField(lonField), asField(lonField), lonField(lonField), latField(latField), timestampField(timestampField)
 {
 }
 
-// Single-field create methods removed - TEMPORAL_SEQUENCE requires three separate fields
-
-std::shared_ptr<WindowAggregationLogicalFunction> TemporalSequenceAggregationLogicalFunction::create(
-    const FieldAccessLogicalFunction& lonField, const FieldAccessLogicalFunction& latField, const FieldAccessLogicalFunction& timestampField)
+TemporalSequenceAggregationLogicalFunction::TemporalSequenceAggregationLogicalFunction(
+    const FieldAccessLogicalFunction& lonField,
+    const FieldAccessLogicalFunction& latField,
+    const FieldAccessLogicalFunction& timestampField,
+    FieldAccessLogicalFunction asField)
+    : onField(lonField), asField(std::move(asField)), lonField(lonField), latField(latField), timestampField(timestampField)
 {
-    return std::make_shared<TemporalSequenceAggregationLogicalFunction>(lonField, latField, timestampField);
 }
 
-std::string_view TemporalSequenceAggregationLogicalFunction::getName() const noexcept
+std::string_view TemporalSequenceAggregationLogicalFunction::getName() noexcept
 {
     return NAME;
 }
-void TemporalSequenceAggregationLogicalFunction::inferStamp(const Schema& schema)
-{
-    /// For TEMPORAL_SEQUENCE, we need to infer types for all three fields
-    lonField = lonField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
-    latField = latField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
-    timestampField = timestampField.withInferredDataType(schema).get<FieldAccessLogicalFunction>();
-    
-    /// We also update onField for backward compatibility
-    onField = lonField;
 
-    if (!lonField.getDataType().isNumeric() || !latField.getDataType().isNumeric() || !timestampField.getDataType().isNumeric())
+bool TemporalSequenceAggregationLogicalFunction::shallIncludeNullValues() noexcept
+{
+    return false;
+}
+
+TemporalSequenceAggregationLogicalFunction TemporalSequenceAggregationLogicalFunction::withInferredStamp(const Schema& schema) const
+{
+    auto newLonField = this->lonField.withInferredDataType(schema).getAs<FieldAccessLogicalFunction>().get();
+    auto newLatField = this->latField.withInferredDataType(schema).getAs<FieldAccessLogicalFunction>().get();
+    auto newTsField = this->timestampField.withInferredDataType(schema).getAs<FieldAccessLogicalFunction>().get();
+
+    if (!newLonField.getDataType().isNumeric() || !newLatField.getDataType().isNumeric() || !newTsField.getDataType().isNumeric())
     {
-        NES_FATAL_ERROR("TemporalSequenceAggregationLogicalFunction: lon, lat, and timestamp fields must be numeric.");
+        throw CannotDeserialize("TEMPORAL_SEQUENCE: lon, lat, and timestamp fields must be numeric");
     }
 
-    ///Set fully qualified name for the as Field
-    const auto onFieldName = lonField.getFieldName();
-    const auto asFieldName = asField.getFieldName();
-
+    const auto onFieldName = newLonField.getFieldName();
+    const auto asFieldName = this->getAsField().getFieldName();
     const auto attributeNameResolver = onFieldName.substr(0, onFieldName.find(Schema::ATTRIBUTE_NAME_SEPARATOR) + 1);
-    ///If on and as field name are different then append the attribute name resolver from on field to the as field
+
+    std::string newAsFieldName;
     if (asFieldName.find(Schema::ATTRIBUTE_NAME_SEPARATOR) == std::string::npos)
     {
-        asField = asField.withFieldName(attributeNameResolver + asFieldName).get<FieldAccessLogicalFunction>();
+        newAsFieldName = attributeNameResolver + asFieldName;
     }
     else
     {
         const auto fieldName = asFieldName.substr(asFieldName.find_last_of(Schema::ATTRIBUTE_NAME_SEPARATOR) + 1);
-        asField = asField.withFieldName(attributeNameResolver + fieldName).get<FieldAccessLogicalFunction>();
+        newAsFieldName = attributeNameResolver + fieldName;
     }
-    auto newAsField = asField.withDataType(getFinalAggregateStamp());
-    asField = newAsField.get<FieldAccessLogicalFunction>();
-    inputStamp = lonField.getDataType();
+
+    const auto newFinalStamp = DataTypeProvider::provideDataType(DataType::Type::VARSIZED);
+
+    auto result = *this;
+    result.lonField = newLonField;
+    result.latField = newLatField;
+    result.timestampField = newTsField;
+    result.onField = newLonField;
+    result.inputStamp = newLonField.getDataType();
+    result.finalAggregateStamp = newFinalStamp;
+    result.asField = this->getAsField().withFieldName(newAsFieldName).withDataType(newFinalStamp);
+    return result;
 }
 
-NES::SerializableAggregationFunction TemporalSequenceAggregationLogicalFunction::serialize() const
+Reflected TemporalSequenceAggregationLogicalFunction::reflect() const
 {
-    NES::SerializableAggregationFunction serializedAggregationFunction;
-    serializedAggregationFunction.set_type(NAME);
+    return NES::reflect(this);
+}
 
-    SerializableFunction lonProto;
-    lonProto.CopyFrom(lonField.serialize());
-    serializedAggregationFunction.mutable_on_field()->CopyFrom(lonProto);
+Reflected Reflector<TemporalSequenceAggregationLogicalFunction>::operator()(const TemporalSequenceAggregationLogicalFunction& function) const
+{
+    return reflect(detail::ReflectedTemporalSequenceAggregationLogicalFunction{
+        .onField = function.getOnField(),
+        .asField = function.getAsField(),
+        .latField = function.getLatField(),
+        .timestampField = function.getTimestampField()});
+}
 
-    SerializableFunction asProto;
-    asProto.CopyFrom(asField.serialize());
-    serializedAggregationFunction.mutable_as_field()->CopyFrom(asProto);
-
-    SerializableFunction latProto;
-    latProto.CopyFrom(latField.serialize());
-    serializedAggregationFunction.add_extra_fields()->CopyFrom(latProto);
-
-    SerializableFunction tsProto;
-    tsProto.CopyFrom(timestampField.serialize());
-    serializedAggregationFunction.add_extra_fields()->CopyFrom(tsProto);
-
-    return serializedAggregationFunction;
+TemporalSequenceAggregationLogicalFunction Unreflector<TemporalSequenceAggregationLogicalFunction>::operator()(const Reflected& reflected) const
+{
+    auto [onField, asField, latField, timestampField] = unreflect<detail::ReflectedTemporalSequenceAggregationLogicalFunction>(reflected);
+    return TemporalSequenceAggregationLogicalFunction{onField, latField, timestampField, asField};
 }
 
 AggregationLogicalFunctionRegistryReturnType AggregationLogicalFunctionGeneratedRegistrar::RegisterTemporalSequenceAggregationLogicalFunction(
     AggregationLogicalFunctionRegistryArguments arguments)
 {
+    if (!arguments.reflected.isEmpty())
+    {
+        return std::make_shared<WindowAggregationLogicalFunction>(unreflect<TemporalSequenceAggregationLogicalFunction>(arguments.reflected));
+    }
     if (arguments.fields.size() == 4)
     {
-        auto function = TemporalSequenceAggregationLogicalFunction::create(arguments.fields[0], arguments.fields[1], arguments.fields[2]);
-        function->setAsField(arguments.fields[3]);
-        return function;
+        return std::make_shared<WindowAggregationLogicalFunction>(
+            TemporalSequenceAggregationLogicalFunction(arguments.fields[0], arguments.fields[1], arguments.fields[2], arguments.fields[3]));
     }
-    NES_FATAL_ERROR(
-        "TemporalSequenceAggregationLogicalFunction requires lon, lat, timestamp, and alias fields but got {}",
-        arguments.fields.size());
+    throw CannotDeserialize("TemporalSequenceAggregationLogicalFunction requires lon, lat, timestamp, and alias fields but got {}", arguments.fields.size());
+}
+
+std::string TemporalSequenceAggregationLogicalFunction::toString() const
+{
+    return fmt::format("TemporalSequence: lonField={} latField={} tsField={} asField={}", onField, latField, timestampField, asField);
+}
+
+DataType TemporalSequenceAggregationLogicalFunction::getInputStamp() const
+{
+    return inputStamp;
+}
+
+DataType TemporalSequenceAggregationLogicalFunction::getPartialAggregateStamp() const
+{
+    return partialAggregateStamp;
+}
+
+DataType TemporalSequenceAggregationLogicalFunction::getFinalAggregateStamp() const
+{
+    return finalAggregateStamp;
+}
+
+FieldAccessLogicalFunction TemporalSequenceAggregationLogicalFunction::getOnField() const
+{
+    return onField;
+}
+
+FieldAccessLogicalFunction TemporalSequenceAggregationLogicalFunction::getAsField() const
+{
+    return asField;
+}
+
+TemporalSequenceAggregationLogicalFunction TemporalSequenceAggregationLogicalFunction::withInputStamp(DataType stamp) const
+{
+    auto copy = *this;
+    copy.inputStamp = std::move(stamp);
+    return copy;
+}
+
+TemporalSequenceAggregationLogicalFunction TemporalSequenceAggregationLogicalFunction::withPartialAggregateStamp(DataType stamp) const
+{
+    auto copy = *this;
+    copy.partialAggregateStamp = std::move(stamp);
+    return copy;
+}
+
+TemporalSequenceAggregationLogicalFunction TemporalSequenceAggregationLogicalFunction::withFinalAggregateStamp(DataType stamp) const
+{
+    auto copy = *this;
+    copy.finalAggregateStamp = std::move(stamp);
+    return copy;
+}
+
+TemporalSequenceAggregationLogicalFunction TemporalSequenceAggregationLogicalFunction::withOnField(FieldAccessLogicalFunction field) const
+{
+    auto copy = *this;
+    copy.onField = std::move(field);
+    return copy;
+}
+
+TemporalSequenceAggregationLogicalFunction TemporalSequenceAggregationLogicalFunction::withAsField(FieldAccessLogicalFunction field) const
+{
+    auto copy = *this;
+    copy.asField = std::move(field);
+    return copy;
+}
+
+bool TemporalSequenceAggregationLogicalFunction::operator==(const TemporalSequenceAggregationLogicalFunction& other) const
+{
+    return this->onField == other.onField && this->asField == other.asField
+        && this->latField == other.latField && this->timestampField == other.timestampField;
 }
 
 } // namespace NES

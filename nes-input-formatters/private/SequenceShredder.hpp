@@ -31,6 +31,8 @@ class ConcurrentSynchronizationTest;
 namespace NES
 {
 
+using FieldIndex = uint32_t;
+
 /// Forward referencing 'SpanningTupleBuffer' to hide implementation details
 class SpanningTupleBuffer;
 

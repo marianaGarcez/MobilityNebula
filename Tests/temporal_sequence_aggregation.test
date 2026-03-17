@@ -17,7 +17,7 @@ ATTACH INLINE
 3,-122.4300,37.7800,1700000000000,55.0
 3,-122.4285,37.7815,1700000060000,52.3
 
-CREATE SINK trajectory_result(vehicle_tracking.start UINT64, vehicle_tracking.end UINT64, vehicle_tracking.vehicle_id UINT32, vehicle_tracking.TRAJECTORY VARSIZED) TYPE File;
+CREATE SINK trajectory_result(vehicle_tracking.start UINT64 NOT NULL, vehicle_tracking.end UINT64 NOT NULL, vehicle_tracking.vehicle_id UINT32, vehicle_tracking.TRAJECTORY VARSIZED) TYPE File;
 
 SELECT start, end, vehicle_id, TEMPORAL_SEQUENCE(lon, lat, ts) AS TRAJECTORY
 FROM vehicle_tracking
@@ -44,7 +44,7 @@ ATTACH INLINE
 20,13.2,46.2,2000002000
 10,12.9,46.1,2000004000
 
-CREATE SINK sliding_trajectories(sensor_data.start UINT64, sensor_data.end UINT64, sensor_data.sensor_id UINT16, sensor_data.PATH VARSIZED) TYPE File;
+CREATE SINK sliding_trajectories(sensor_data.start UINT64 NOT NULL, sensor_data.end UINT64 NOT NULL, sensor_data.sensor_id UINT16, sensor_data.PATH VARSIZED) TYPE File;
 
 SELECT start, end, sensor_id, TEMPORAL_SEQUENCE(x_coord, y_coord, time_ms) AS PATH
 FROM sensor_data
@@ -72,7 +72,7 @@ ATTACH INLINE
 300,-73.9900,40.7300,3000000000,45.0,"car"
 200,-74.0040,40.7148,3000002000,6.2,"bike"
 
-CREATE SINK filtered_trajectories(gps_stream.start UINT64, gps_stream.end UINT64, gps_stream.device_id UINT32, gps_stream.TRAJECTORY VARSIZED) TYPE File;
+CREATE SINK filtered_trajectories(gps_stream.start UINT64 NOT NULL, gps_stream.end UINT64 NOT NULL, gps_stream.device_id UINT32, gps_stream.TRAJECTORY VARSIZED) TYPE File;
 
 SELECT start, end, device_id, TEMPORAL_SEQUENCE(longitude, latitude, timestamp) AS TRAJECTORY
 FROM gps_stream
@@ -95,7 +95,7 @@ ATTACH INLINE
 1,101,-0.1258,51.5094,4000002000
 2,201,-0.1390,51.5210,4000001000
 
-CREATE SINK fleet_trajectories(fleet_tracking.start UINT64, fleet_tracking.end UINT64, fleet_tracking.fleet_id UINT32, fleet_tracking.vehicle_id UINT32, fleet_tracking.ROUTE VARSIZED) TYPE File;
+CREATE SINK fleet_trajectories(fleet_tracking.start UINT64 NOT NULL, fleet_tracking.end UINT64 NOT NULL, fleet_tracking.fleet_id UINT32, fleet_tracking.vehicle_id UINT32, fleet_tracking.ROUTE VARSIZED) TYPE File;
 
 SELECT start, end, fleet_id, vehicle_id, TEMPORAL_SEQUENCE(lng, lat, ts) AS ROUTE
 FROM fleet_tracking
@@ -117,7 +117,7 @@ ATTACH INLINE
 2,30.0,40.0,5000010000
 2,30.1,40.1,5000011000
 
-CREATE SINK sparse_result(sparse_tracking.start UINT64, sparse_tracking.end UINT64, sparse_tracking.id UINT32, sparse_tracking.TRAJ VARSIZED) TYPE File;
+CREATE SINK sparse_result(sparse_tracking.start UINT64 NOT NULL, sparse_tracking.end UINT64 NOT NULL, sparse_tracking.id UINT32, sparse_tracking.TRAJ VARSIZED) TYPE File;
 
 SELECT start, end, id, TEMPORAL_SEQUENCE(x, y, t) AS TRAJ
 FROM sparse_tracking
@@ -139,7 +139,7 @@ ATTACH INLINE
 2,-122.4185,37.7760,6000001000,38.5,0.78
 2,-122.4170,37.7770,6000002000,36.2,0.76
 
-CREATE SINK vehicle_summary(vehicle_metrics.start UINT64, vehicle_metrics.end UINT64, vehicle_metrics.vehicle_id UINT32, vehicle_metrics.TRAJECTORY VARSIZED, vehicle_metrics.AVG_SPEED FLOAT64, vehicle_metrics.MIN_FUEL FLOAT64) TYPE File;
+CREATE SINK vehicle_summary(vehicle_metrics.start UINT64 NOT NULL, vehicle_metrics.end UINT64 NOT NULL, vehicle_metrics.vehicle_id UINT32, vehicle_metrics.TRAJECTORY VARSIZED, vehicle_metrics.AVG_SPEED FLOAT64, vehicle_metrics.MIN_FUEL FLOAT64) TYPE File;
 
 SELECT start, end, vehicle_id,
        TEMPORAL_SEQUENCE(lon, lat, timestamp) AS TRAJECTORY,

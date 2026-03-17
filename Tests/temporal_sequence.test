@@ -12,7 +12,7 @@ ATTACH INLINE
 -73.9650,40.7620,4000
 -73.9600,40.7650,7000
 
-CREATE SINK basic_result(gps_data.start UINT64, gps_data.end UINT64, gps_data.TRAJECTORY VARSIZED) TYPE File;
+CREATE SINK basic_result(gps_data.start UINT64 NOT NULL, gps_data.end UINT64 NOT NULL, gps_data.TRAJECTORY VARSIZED) TYPE File;
 
 SELECT start, end, TEMPORAL_SEQUENCE(longitude, latitude, timestamp) AS TRAJECTORY
 FROM gps_data

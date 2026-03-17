@@ -57,6 +57,7 @@
 #include <Operators/Windows/Aggregations/MinAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/SumAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/WindowAggregationLogicalFunction.hpp>
+#include <Operators/Windows/Aggregations/Meos/TemporalSequenceAggregationLogicalFunctionV2.hpp>
 #include <Operators/Windows/JoinLogicalOperator.hpp>
 #include <Plans/LogicalPlan.hpp>
 #include <Plans/LogicalPlanBuilder.hpp>
@@ -896,6 +897,24 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                 MedianAggregationLogicalFunction(helpers.top().functionBuilder.back().getAs<FieldAccessLogicalFunction>().get())));
             isAggregation = true;
             break;
+        case AntlrSQLLexer::TEMPORAL_SEQUENCE:
+        {
+            // TEMPORAL_SEQUENCE(lon, lat, timestamp) requires exactly 3 field access arguments
+            if (helpers.top().functionBuilder.size() < 3)
+            {
+                throw InvalidQuerySyntax("TEMPORAL_SEQUENCE requires 3 arguments (longitude, latitude, timestamp), got {}", helpers.top().functionBuilder.size());
+            }
+            auto tsField = helpers.top().functionBuilder.back().getAs<FieldAccessLogicalFunction>().get();
+            helpers.top().functionBuilder.pop_back();
+            auto latField = helpers.top().functionBuilder.back().getAs<FieldAccessLogicalFunction>().get();
+            helpers.top().functionBuilder.pop_back();
+            auto lonField = helpers.top().functionBuilder.back().getAs<FieldAccessLogicalFunction>().get();
+            // Don't pop lonField - it stays as the placeholder for post-aggregation reference
+            helpers.top().windowAggs.push_back(std::make_shared<WindowAggregationLogicalFunction>(
+                TemporalSequenceAggregationLogicalFunctionV2(lonField, latField, tsField, lonField)));
+            isAggregation = true;
+            break;
+        }
         default:
             helpers.top().hasUnnamedAggregation = false;
             /// Check if the function is a constructor for a datatype
