@@ -26,6 +26,7 @@
 #include <fmt/format.h>
 #include <QueryEngineConfiguration.hpp>
 #include <QueryExecutionConfiguration.hpp>
+#include <QueryOptimizerConfiguration.hpp>
 
 namespace NES
 {
@@ -37,6 +38,7 @@ public:
 
     QueryEngineConfiguration queryEngine = {"query_engine", "Configuration for the query engine"};
     QueryExecutionConfiguration defaultQueryExecution = {"default_query_execution", "Default configuration for query executions"};
+    QueryOptimizerConfiguration defaultQueryOptimization = {"default_query_optimization", "Default configuration for query optimizations"};
 
     /// The number of buffers in the global buffer manager. Controls how much memory is consumed by the system.
     UIntOption numberOfBuffersInGlobalBufferManager
@@ -66,6 +68,7 @@ private:
         return {
             &queryEngine,
             &defaultQueryExecution,
+            &defaultQueryOptimization,
             &numberOfBuffersInGlobalBufferManager,
             &defaultMaxInflightBuffers,
             &dumpQueryCompilationIR,
