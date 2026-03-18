@@ -1,0 +1,83 @@
+query: |
+  SELECT start, end, device_id,
+         AVG(gps_speed) AS avg_speed,
+         AVG(pcfa_mbar) AS avg_brake_pressure
+  FROM (
+      SELECT device_id, time_utc, gps_speed, pcfa_mbar
+      FROM (
+          SELECT time_utc, device_id, gps_speed FROM sncb_gps
+      )
+      INNER JOIN (
+          SELECT time_utc,
+                 device_id AS device_id2,
+                 pcfa_mbar
+          FROM sncb_brake
+      )
+      ON (device_id = device_id2)
+      WINDOW TUMBLING (time_utc, SIZE 10 SEC)
+  ) AS joined_data
+  GROUP BY device_id
+  WINDOW TUMBLING (time_utc, SIZE 10 SEC)
+  INTO file_sink;
+
+sinks:
+  - name: FILE_SINK
+    type: File
+    schema:
+      - { name: SNCB_GPS$START,                type: UINT64 }
+      - { name: SNCB_GPS$END,                  type: UINT64 }
+      - { name: SNCB_GPS$DEVICE_ID,            type: UINT64 }
+      - { name: SNCB_GPS$AVG_SPEED,            type: FLOAT64 }
+      - { name: SNCB_BRAKE$AVG_BRAKE_PRESSURE, type: FLOAT64 }
+    config:
+      file_path: "/workspace/Output/output_gps_brake.csv"
+      input_format: CSV
+
+logical:
+  - name: SNCB_GPS
+    schema:
+      - { name: DEVICE_ID,  type: UINT64 }
+      - { name: TIME_UTC,   type: UINT64 }
+      - { name: GPS_DATE,   type: UINT64 }
+      - { name: GPS_TIME,   type: UINT64 }
+      - { name: GPS_SPEED,  type: FLOAT64 }
+      - { name: GPS_LAT,    type: FLOAT64 }
+      - { name: GPS_LON,    type: FLOAT64 }
+
+  - name: SNCB_BRAKE
+    schema:
+      - { name: DEVICE_ID,  type: UINT64 }
+      - { name: TIME_UTC,   type: UINT64 }
+      - { name: PCFA_MBAR,  type: FLOAT64 }
+      - { name: PCFF_MBAR,  type: FLOAT64 }
+      - { name: PCF1_MBAR,  type: FLOAT64 }
+      - { name: PCF2_MBAR,  type: FLOAT64 }
+      - { name: T1_MBAR,    type: FLOAT64 }
+      - { name: T2_MBAR,    type: FLOAT64 }
+      - { name: CODE1,      type: FLOAT64 }
+      - { name: CODE2,      type: FLOAT64 }
+
+physical:
+  - logical: SNCB_GPS
+    type: TCP
+    parser_config:
+      type: CSV
+      field_delimiter: ","
+      tuple_delimiter: "\n"
+    source_config:
+      socket_host: "host.docker.internal"
+      socket_port: "32325"
+      flush_interval_ms: "100"
+      auto_reconnect: "true"
+
+  - logical: SNCB_BRAKE
+    type: TCP
+    parser_config:
+      type: CSV
+      field_delimiter: ","
+      tuple_delimiter: "\n"
+    source_config:
+      socket_host: "host.docker.internal"
+      socket_port: "32324"
+      flush_interval_ms: "100"
+      auto_reconnect: "true"

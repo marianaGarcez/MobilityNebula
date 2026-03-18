@@ -16,3 +16,4 @@ add_plugin(TemporalAIntersectsGeometry PhysicalFunction nes-physical-operators T
 add_plugin(TemporalEContainsGeometry PhysicalFunction nes-physical-operators TemporalEContainsGeometryPhysicalFunction.cpp)
 add_plugin(TemporalEDWithinGeometry PhysicalFunction nes-physical-operators TemporalEDWithinGeometryPhysicalFunction.cpp)
 add_plugin(TemporalAtStBox PhysicalFunction nes-physical-operators TemporalAtStBoxPhysicalFunction.cpp)
+add_plugin(NearestApproachDistance PhysicalFunction nes-physical-operators NearestApproachDistancePhysicalFunction.cpp)

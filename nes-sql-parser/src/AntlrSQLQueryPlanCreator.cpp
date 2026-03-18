@@ -58,6 +58,8 @@
 #include <Operators/Windows/Aggregations/SumAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/WindowAggregationLogicalFunction.hpp>
 #include <Operators/Windows/Aggregations/Meos/TemporalSequenceAggregationLogicalFunctionV2.hpp>
+#include <Operators/Windows/Aggregations/Meos/VarAggregationLogicalFunction.hpp>
+#include <Operators/Windows/Aggregations/Meos/KnnAggregationLogicalFunction.hpp>
 #include <Operators/Windows/JoinLogicalOperator.hpp>
 #include <Plans/LogicalPlan.hpp>
 #include <Plans/LogicalPlanBuilder.hpp>
@@ -824,7 +826,11 @@ void AntlrSQLQueryPlanCreator::exitConstantDefault(AntlrSQLParser::ConstantDefau
             throw InvalidQuerySyntax(
                 "A constant string literal must contain at least two quotes and must not be empty at {}", context->getText());
         }
-        helpers.top().constantBuilder.push_back(context->getText().substr(1, stringLiteralContext->getText().size() - 2));
+        auto strValue = context->getText().substr(1, stringLiteralContext->getText().size() - 2);
+        /// Push string literals as VARSIZED constants onto functionBuilder so they can be used
+        /// as arguments to scalar functions (e.g., MEOS geometry WKT strings).
+        helpers.top().functionBuilder.emplace_back(
+            ConstantValueLogicalFunction(DataTypeProvider::provideDataType(DataType::Type::VARSIZED), std::move(strValue)));
     }
     else
     {
@@ -897,6 +903,12 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                 MedianAggregationLogicalFunction(helpers.top().functionBuilder.back().getAs<FieldAccessLogicalFunction>().get())));
             isAggregation = true;
             break;
+        case AntlrSQLLexer::VAR:
+            ensureFieldAccessArgument();
+            helpers.top().windowAggs.push_back(std::make_shared<WindowAggregationLogicalFunction>(
+                VarAggregationLogicalFunction(helpers.top().functionBuilder.back().getAs<FieldAccessLogicalFunction>().get())));
+            isAggregation = true;
+            break;
         case AntlrSQLLexer::TEMPORAL_SEQUENCE:
         {
             // TEMPORAL_SEQUENCE(lon, lat, timestamp) requires exactly 3 field access arguments
@@ -917,8 +929,65 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
         }
         default:
             helpers.top().hasUnnamedAggregation = false;
+            /// KNN_AGG(distance_field, neighbour_field, k) - special aggregation
+            if (funcName == "KNN_AGG")
+            {
+                auto& helper = helpers.top();
+
+                if (helper.functionBuilder.size() < 2)
+                {
+                    throw InvalidQuerySyntax(
+                        "KNN_AGG requires at least two arguments (distance field, neighbour field) at {}",
+                        context->getText());
+                }
+
+                const auto neighbourFunction = helper.functionBuilder.back();
+                helper.functionBuilder.pop_back();
+                const auto distanceFunction = helper.functionBuilder.back();
+                helper.functionBuilder.pop_back();
+
+                const auto neighbourFieldOpt = neighbourFunction.tryGetAs<FieldAccessLogicalFunction>();
+                const auto distanceFieldOpt = distanceFunction.tryGetAs<FieldAccessLogicalFunction>();
+                if (!neighbourFieldOpt || !distanceFieldOpt)
+                {
+                    throw InvalidQuerySyntax(
+                        "KNN_AGG arguments must be field references (distance field, neighbour field) at {}",
+                        context->getText());
+                }
+
+                std::size_t kValue = 10;
+                if (!helper.constantBuilder.empty())
+                {
+                    const auto kStr = helper.constantBuilder.back();
+                    helper.constantBuilder.pop_back();
+                    try
+                    {
+                        const auto parsed = std::stoll(kStr);
+                        if (parsed <= 0)
+                        {
+                            throw InvalidQuerySyntax(
+                                "KNN_AGG k parameter must be a positive integer at {}", context->getText());
+                        }
+                        kValue = static_cast<std::size_t>(parsed);
+                    }
+                    catch (const std::exception&)
+                    {
+                        throw InvalidQuerySyntax(
+                            "KNN_AGG k parameter must be a positive integer at {}", context->getText());
+                    }
+                }
+
+                const auto& distanceField = distanceFunction.getAs<FieldAccessLogicalFunction>().get();
+                const auto& neighbourField = neighbourFunction.getAs<FieldAccessLogicalFunction>().get();
+                helper.windowAggs.push_back(std::make_shared<WindowAggregationLogicalFunction>(
+                    KnnAggregationLogicalFunction(distanceField, neighbourField, distanceField, kValue)));
+
+                // Keep one field access in the function builder for alias handling
+                helper.functionBuilder.push_back(distanceFunction);
+                isAggregation = true;
+            }
             /// Check if the function is a constructor for a datatype
-            if (const auto dataType = DataTypeProvider::tryProvideDataType(funcName); dataType.has_value())
+            else if (const auto dataType = DataTypeProvider::tryProvideDataType(funcName); dataType.has_value())
             {
                 if (helpers.top().constantBuilder.empty())
                 {
@@ -932,6 +1001,22 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
             }
             else
             {
+                /// Map MEOS SQL-style function names to their registry CamelCase names
+                static const std::unordered_map<std::string, std::string> sqlToRegistryName = {
+                    {"EDWITHIN_TGEO_GEO", "TemporalEDWithinGeometry"},
+                    {"TEMPORAL_EINTERSECTS_GEOMETRY", "TemporalIntersectsGeometry"},
+                    {"TEMPORAL_AINTERSECTS_GEOMETRY", "TemporalAIntersectsGeometry"},
+                    {"TEMPORAL_ECONTAINS_GEOMETRY", "TemporalEContainsGeometry"},
+                    {"TGEO_AT_STBOX", "TemporalAtStBox"},
+                    {"TEMPORAL_INTERSECTS", "TemporalIntersects"},
+                    {"NEARESTAPPROACHDISTANCE", "NearestApproachDistance"},
+                };
+                auto lookupName = funcName;
+                if (auto it = sqlToRegistryName.find(funcName); it != sqlToRegistryName.end())
+                {
+                    lookupName = it->second;
+                }
+
                 const auto numArgs = context->argument.size();
                 if (numArgs > helpers.top().functionBuilder.size())
                 {
@@ -943,7 +1028,7 @@ void AntlrSQLQueryPlanCreator::exitFunctionCall(AntlrSQLParser::FunctionCallCont
                 }
                 auto argsBegin = helpers.top().functionBuilder.end() - static_cast<std::ptrdiff_t>(numArgs);
                 std::vector<LogicalFunction> funcArgs(argsBegin, helpers.top().functionBuilder.end());
-                if (auto logicalFunction = LogicalFunctionProvider::tryProvide(funcName, std::move(funcArgs)))
+                if (auto logicalFunction = LogicalFunctionProvider::tryProvide(lookupName, std::move(funcArgs)))
                 {
                     helpers.top().functionBuilder.resize(helpers.top().functionBuilder.size() - numArgs);
                     helpers.top().functionBuilder.push_back(*logicalFunction);

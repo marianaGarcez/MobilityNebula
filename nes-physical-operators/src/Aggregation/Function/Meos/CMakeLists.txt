@@ -11,4 +11,6 @@
 # limitations under the License.
 
 add_plugin(TemporalSequence AggregationPhysicalFunction nes-physical-operators TemporalSequenceAggregationPhysicalFunction.cpp)
+add_plugin(TemporalExtKalmanFilter AggregationPhysicalFunction nes-physical-operators TemporalExtKalmanFilterAggregationPhysicalFunction.cpp)
 add_plugin(Var AggregationPhysicalFunction nes-physical-operators VarAggregationFunction.cpp)
+add_plugin(KnnAgg AggregationPhysicalFunction nes-physical-operators KnnAggregationPhysicalFunction.cpp)

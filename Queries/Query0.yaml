@@ -46,5 +46,5 @@ physical:
     source_config:
       socket_host: "host.docker.internal"
       socket_port: "32324"
-      socket_type: "SOCK_STREAM"
-      socket_domain: "AF_INET"
+      flush_interval_ms: "100"
+      auto_reconnect: "true"

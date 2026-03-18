@@ -1,0 +1,97 @@
+query: |
+  SELECT start,
+         end,
+         device_id  AS device_id1,
+         device_id2 AS device_id2,
+         gps_lat    AS gps_lat1,
+         gps_lat2   AS gps_lat2,
+         nearestApproachDistance(gps_lon,
+                                 gps_lat,
+                                 time_utc,
+                                 gps_lon2,
+                                 gps_lat2,
+                                 time_utc) AS mindist
+  FROM (
+      SELECT * FROM sncb_stream
+  )
+  INNER JOIN (
+      SELECT time_utc,
+             device_id AS device_id2,
+             gps_lat   AS gps_lat2,
+             gps_lon   AS gps_lon2
+      FROM sncb_stream2
+  )
+  ON (device_id = device_id2)
+  WINDOW TUMBLING (time_utc, SIZE 10 SEC)
+  WHERE (gps_lat - gps_lat2 > FLOAT64(2.0))
+     OR (gps_lat2 - gps_lat > FLOAT64(2.0))
+  INTO file_sink;
+
+sinks:
+  - name: FILE_SINK
+    type: File
+    schema:
+      - { name: SNCB_STREAMSNCB_STREAM2$START, type: UINT64 }
+      - { name: SNCB_STREAMSNCB_STREAM2$END,   type: UINT64 }
+      - { name: DEVICE_ID1,                    type: UINT64 }
+      - { name: DEVICE_ID2,                    type: UINT64 }
+      - { name: GPS_LAT1,                      type: FLOAT64 }
+      - { name: GPS_LAT2,                      type: FLOAT64 }
+      - { name: MINDIST,                       type: FLOAT64 }
+    config:
+      file_path: "/workspace/Output/output_query6-csv.csv"
+      input_format: CSV
+
+logical:
+  - name: SNCB_STREAM
+    schema:
+      - { name: TIME_UTC,   type: UINT64 }
+      - { name: DEVICE_ID,  type: UINT64 }
+      - { name: VBAT,       type: FLOAT64 }
+      - { name: PCFA_MBAR,  type: FLOAT64 }
+      - { name: PCFF_MBAR,  type: FLOAT64 }
+      - { name: PCF1_MBAR,  type: FLOAT64 }
+      - { name: PCF2_MBAR,  type: FLOAT64 }
+      - { name: T1_MBAR,    type: FLOAT64 }
+      - { name: T2_MBAR,    type: FLOAT64 }
+      - { name: CODE1,      type: FLOAT64 }
+      - { name: CODE2,      type: FLOAT64 }
+      - { name: GPS_SPEED,  type: FLOAT64 }
+      - { name: GPS_LAT,    type: FLOAT64 }
+      - { name: GPS_LON,    type: FLOAT64 }
+
+  - name: SNCB_STREAM2
+    schema:
+      - { name: TIME_UTC,   type: UINT64 }
+      - { name: DEVICE_ID,  type: UINT64 }
+      - { name: VBAT,       type: FLOAT64 }
+      - { name: PCFA_MBAR,  type: FLOAT64 }
+      - { name: PCFF_MBAR,  type: FLOAT64 }
+      - { name: PCF1_MBAR,  type: FLOAT64 }
+      - { name: PCF2_MBAR,  type: FLOAT64 }
+      - { name: T1_MBAR,    type: FLOAT64 }
+      - { name: T2_MBAR,    type: FLOAT64 }
+      - { name: CODE1,      type: FLOAT64 }
+      - { name: CODE2,      type: FLOAT64 }
+      - { name: GPS_SPEED,  type: FLOAT64 }
+      - { name: GPS_LAT,    type: FLOAT64 }
+      - { name: GPS_LON,    type: FLOAT64 }
+
+physical:
+  - logical: SNCB_STREAM
+    type: File
+    parser_config:
+      type: CSV
+      field_delimiter: ","
+      tuple_delimiter: "\n"
+    source_config:
+      file_path: "/workspace/Input/selected_columns_df_noheader.csv"
+
+  - logical: SNCB_STREAM2
+    type: File
+    parser_config:
+      type: CSV
+      field_delimiter: ","
+      tuple_delimiter: "\n"
+    source_config:
+      file_path: "/workspace/Input/selected_columns_df_noheader.csv"

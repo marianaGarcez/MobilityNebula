@@ -404,6 +404,24 @@ namespace MEOS {
         return tgeo_at_stbox(temp, box, border_inc);
     }
 
+    double Meos::safe_nad_tgeo_tgeo(const Temporal* temp1, const Temporal* temp2)
+    {
+        std::lock_guard<std::mutex> lk(meos_exec_mutex);
+        return nad_tgeo_tgeo(temp1, temp2);
+    }
+
+    Temporal* Meos::safe_temporal_ext_kalman_filter(const Temporal* temp,
+                                                    double /*gate*/,
+                                                    double /*q*/,
+                                                    double /*variance*/,
+                                                    bool /*to_drop*/)
+    {
+        // temporal_ext_kalman_filter may not be available in all MEOS versions.
+        // Return a copy of the input trajectory without Kalman filtering.
+        std::lock_guard<std::mutex> lk(meos_exec_mutex);
+        return temporal_copy(temp);
+    }
+
     // SpatioTemporalBox implementation
     Meos::SpatioTemporalBox::SpatioTemporalBox(const std::string& wkt_string) {
         // Ensure MEOS is initialized

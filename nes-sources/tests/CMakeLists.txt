@@ -22,3 +22,6 @@ endfunction()
 
 add_nes_source_test(source-thread-test SourceThreadTest.cpp)
 add_nes_source_test(source-catalog-test SourceCatalogTest.cpp)
+
+add_nes_source_test(tcp-reconnection-test TCPReconnectionTest.cpp)
+target_link_libraries(tcp-reconnection-test tcp_source_plugin_library)
