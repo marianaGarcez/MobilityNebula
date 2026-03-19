@@ -60,10 +60,11 @@ RUN --mount=type=cache,id=ccache,target=/ccache \
     cmake -B build -S . \
         -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
         -DNES_ENABLES_TESTS=0 && \
-    cmake --build build --target nes-single-node-worker nes-nebuli -j && \
-    mkdir -p /tmp/bin /tmp/lib && \
+    cmake --build build --target nes-single-node-worker nes-cli -j && \
+    mkdir -p /tmp/bin /tmp/lib /tmp/queries && \
     find build -name 'nes-single-node-worker' -type f -exec cp {} /tmp/bin/ \; && \
-    find build -name 'nes-nebuli' -type f -exec cp {} /tmp/bin/ \;
+    find build -name 'nes-cli' -type f -exec cp {} /tmp/bin/ \; && \
+    cp -r Queries/* /tmp/queries/ 2>/dev/null || true
 
 # Collect shared library dependencies needed at runtime
 RUN for bin in /tmp/bin/*; do \
@@ -104,6 +105,7 @@ RUN GRPC_HEALTH_PROBE_VERSION=v0.4.40 && \
 
 COPY --from=build /tmp/bin/* /usr/local/bin/
 COPY --from=build /tmp/lib/* /usr/local/lib/
+COPY --from=build /tmp/queries /opt/mobility-nebula/Queries
 RUN ldconfig
 
 EXPOSE 8081 4000

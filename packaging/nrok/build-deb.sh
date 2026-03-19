@@ -25,7 +25,7 @@ mkdir -p "${PKG_DIR}/etc/systemd/system"
 mkdir -p "${PKG_DIR}/etc/mobility-nebula"
 
 # Copy binaries
-for bin in nes-single-node-worker nes-nebuli; do
+for bin in nes-single-node-worker nes-cli; do
     if [ -f "${BIN_DIR}/${bin}" ]; then
         install -Dm755 "${BIN_DIR}/${bin}" "${PKG_DIR}/usr/local/bin/${bin}"
     fi
