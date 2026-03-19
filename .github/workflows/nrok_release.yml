@@ -58,9 +58,29 @@ jobs:
           if [ -n "${{ inputs.dev_image_tag }}" ]; then
             echo "tag=${{ inputs.dev_image_tag }}" >> "$GITHUB_OUTPUT"
           else
-            # Compute from dependency hash (same as get_dev_images.yml)
+            # Try the current dependency hash first, fall back to latest upstream
             HASH=$(docker/dependency/hash_dependencies.sh)
-            echo "tag=${HASH}-x64-libcxx-none" >> "$GITHUB_OUTPUT"
+            TAG="${HASH}-x64-libcxx-none"
+            HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+              "https://hub.docker.com/v2/namespaces/nebulastream/repositories/nes-development/tags/${TAG}")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::Dev image for hash ${HASH} not found, discovering latest available x64 tag"
+              LATEST_TAG=$(curl -s "https://hub.docker.com/v2/namespaces/nebulastream/repositories/nes-development/tags?page_size=100" \
+                | python3 -c "
+          import sys, json
+          tags = json.load(sys.stdin).get('results', [])
+          x64 = [t['name'] for t in tags if 'x64-libcxx-none' in t['name']]
+          print(x64[0] if x64 else '')" )
+              if [ -n "$LATEST_TAG" ]; then
+                echo "::notice::Using latest upstream dev image: ${LATEST_TAG}"
+                echo "tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
+              else
+                echo "::error::No x64 dev image found on DockerHub"
+                exit 1
+              fi
+            fi
           fi
 
   # ─── Build Docker image and push to GHCR ──────────────────────────
