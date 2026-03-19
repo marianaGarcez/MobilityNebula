@@ -1,0 +1,67 @@
+# syntax=docker/dockerfile:1
+# Multi-stage build for NROK-1030 railway gateway (x86_64 Intel Atom)
+# Stage 1: Build from NebulaStream development image
+# Stage 2: Lean Ubuntu runtime for deployment
+ARG TAG=latest
+ARG BUILD_TYPE=RelWithDebInfo
+FROM nebulastream/nes-development:${TAG} AS build
+
+USER root
+ADD . /home/ubuntu/src
+RUN --mount=type=cache,id=ccache,target=/ccache \
+    export CCACHE_DIR=/ccache && \
+    cd /home/ubuntu/src && \
+    cmake -B build -S . \
+        -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+        -DNES_ENABLES_TESTS=0 && \
+    cmake --build build --target nes-single-node-worker nes-nebuli -j && \
+    mkdir -p /tmp/bin /tmp/lib && \
+    find build -name 'nes-single-node-worker' -type f -exec cp {} /tmp/bin/ \; && \
+    find build -name 'nes-nebuli' -type f -exec cp {} /tmp/bin/ \;
+
+# Collect shared library dependencies needed at runtime
+RUN for bin in /tmp/bin/*; do \
+        ldd "$bin" 2>/dev/null | grep '=>' | awk '{print $3}' | \
+        while read lib; do \
+            [ -f "$lib" ] && cp -L "$lib" /tmp/lib/ 2>/dev/null || true; \
+        done; \
+    done
+
+# Stage 2: Lean runtime image for NROK-1030
+FROM ubuntu:24.04 AS runtime
+LABEL org.opencontainers.image.title="MobilityNebula NROK Gateway"
+LABEL org.opencontainers.image.description="Stream processing engine for NROK-1030 railway gateway"
+LABEL org.opencontainers.image.source="https://github.com/MobilityDB/MobilityNebula"
+
+ENV LLVM_TOOLCHAIN_VERSION=19
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+        curl wget gpg ca-certificates && \
+    curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | \
+        gpg --dearmor -o /etc/apt/keyrings/llvm-snapshot.gpg && \
+    chmod a+r /etc/apt/keyrings/llvm-snapshot.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/llvm-snapshot.gpg] \
+        http://apt.llvm.org/$(. /etc/os-release && echo "$VERSION_CODENAME")/ \
+        llvm-toolchain-$(. /etc/os-release && echo "$VERSION_CODENAME")-${LLVM_TOOLCHAIN_VERSION} main" \
+        > /etc/apt/sources.list.d/llvm-snapshot.list && \
+    apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+        libc++1-${LLVM_TOOLCHAIN_VERSION} \
+        libc++abi1-${LLVM_TOOLCHAIN_VERSION} && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN GRPC_HEALTH_PROBE_VERSION=v0.4.40 && \
+    wget -qO /bin/grpc_health_probe \
+        "https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-$(dpkg --print-architecture)" && \
+    chmod +x /bin/grpc_health_probe
+
+COPY --from=build /tmp/bin/* /usr/local/bin/
+COPY --from=build /tmp/lib/* /usr/local/lib/
+RUN ldconfig
+
+EXPOSE 8081 4000
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD grpc_health_probe -addr=:4000 || exit 1
+
+ENTRYPOINT ["nes-single-node-worker"]

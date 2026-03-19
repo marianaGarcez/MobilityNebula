@@ -1,0 +1,110 @@
+name: MacBook Docker Image
+
+# Builds and publishes a linux/arm64 Docker image for Apple Silicon MacBooks.
+#
+# Usage:
+#   docker pull ghcr.io/<owner>/mobility-nebula:latest-arm64
+#   docker run -d -p 8081:8081 -p 4000:4000 ghcr.io/<owner>/mobility-nebula:latest-arm64
+
+on:
+  push:
+    branches: [main, 'feature/**']
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.0.0). Defaults to tag name or short SHA.'
+        required: false
+        type: string
+      dev_image_tag:
+        description: 'Dev image tag (nebulastream/nes-development:<tag>). Leave empty to auto-detect.'
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/mobility-nebula
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      dev_tag: ${{ steps.dev-tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Determine dev image tag
+        id: dev-tag
+        run: |
+          if [ -n "${{ inputs.dev_image_tag }}" ]; then
+            echo "tag=${{ inputs.dev_image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            HASH=$(docker/dependency/hash_dependencies.sh)
+            echo "tag=${HASH}-arm64-libcxx-none" >> "$GITHUB_OUTPUT"
+          fi
+
+  docker-image-arm64:
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU (for ARM64 cross-build)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            suffix=-arm64,onlatest=true
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ needs.prepare.outputs.version }}
+
+      - name: Build and push Docker image (ARM64)
+        uses: docker/build-push-action@v6
+        with:
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/arm64
+          build-args: |
+            TAG=${{ needs.prepare.outputs.dev_tag }}
+            BUILD_TYPE=RelWithDebInfo
+          context: .
+          file: packaging/nrok/Dockerfile.nrok
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

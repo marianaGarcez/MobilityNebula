@@ -1,0 +1,22 @@
+[Unit]
+Description=MobilityNebula Stream Processing Engine
+Documentation=https://github.com/MobilityDB/MobilityNebula
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nes-single-node-worker
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+Environment="LD_LIBRARY_PATH=/usr/local/lib"
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log /tmp
+
+[Install]
+WantedBy=multi-user.target
