@@ -66,15 +66,23 @@ jobs:
             if [ "$HTTP_CODE" = "200" ]; then
               echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
             else
-              echo "::warning::Dev image for hash ${HASH} not found, discovering latest available x64 tag"
-              LATEST_TAG=$(curl -s "https://hub.docker.com/v2/namespaces/nebulastream/repositories/nes-development/tags?page_size=100" \
-                | python3 -c "
+              echo "::warning::Dev image for hash ${HASH} not found, using latest known upstream tag"
+              # Paginate DockerHub API to find the latest x64-libcxx-none tag
+              LATEST_TAG=""
+              URL="https://hub.docker.com/v2/namespaces/nebulastream/repositories/nes-development/tags?page_size=100"
+              for i in 1 2 3; do
+                LATEST_TAG=$(curl -s "$URL" \
+                  | python3 -c "
           import sys, json
-          tags = json.load(sys.stdin).get('results', [])
+          data = json.load(sys.stdin)
+          tags = data.get('results', [])
           x64 = [t['name'] for t in tags if 'x64-libcxx-none' in t['name']]
-          print(x64[0] if x64 else '')" )
+          print(x64[0] if x64 else '')")
+                [ -n "$LATEST_TAG" ] && break
+                URL="https://hub.docker.com/v2/namespaces/nebulastream/repositories/nes-development/tags?page_size=100&page=$((i+1))"
+              done
               if [ -n "$LATEST_TAG" ]; then
-                echo "::notice::Using latest upstream dev image: ${LATEST_TAG}"
+                echo "::notice::Using upstream dev image: ${LATEST_TAG}"
                 echo "tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
               else
                 echo "::error::No x64 dev image found on DockerHub"
