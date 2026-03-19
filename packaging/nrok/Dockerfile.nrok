@@ -36,22 +36,21 @@ RUN git clone --depth 1 https://github.com/MobilityDB/MobilityDB.git -b master /
     && ldconfig \
     && rm -rf /tmp/MobilityDB
 
-# ── Install paho-mqtt via vcpkg (missing from upstream SDK) ──────────
-ADD vcpkg /tmp/vcpkg_src
-RUN cd /tmp/vcpkg_src \
-    && git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg_repository \
-    && ./vcpkg_repository/bootstrap-vcpkg.sh --disableMetrics \
-    && VCPKG_STDLIB="libcxx" \
-    && ARCH=$(dpkg --print-architecture | sed 's/amd64/x64/') \
-    && ./vcpkg_repository/vcpkg install \
+# ── Install paho-mqtt via vcpkg in classic mode (missing from upstream SDK) ──
+COPY vcpkg/custom-triplets /tmp/vcpkg_overlay/custom-triplets
+COPY vcpkg/vcpkg-registry/ports /tmp/vcpkg_overlay/ports
+RUN set -eux; \
+    cd /tmp; \
+    git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg_classic; \
+    ./vcpkg_classic/bootstrap-vcpkg.sh --disableMetrics; \
+    ARCH=$(dpkg --print-architecture | sed 's/amd64/x64/'); \
+    ./vcpkg_classic/vcpkg install \
         paho-mqtt paho-mqttpp3[ssl] \
-        --overlay-triplets=custom-triplets \
-        --overlay-ports=vcpkg-registry/ports \
-        --triplet="${ARCH}-linux-none-${VCPKG_STDLIB}" \
-    && cp -a /tmp/vcpkg_src/vcpkg_repository/installed/* \
-             ${NES_PREBUILT_VCPKG_ROOT}/installed/ 2>/dev/null \
-    || cp -a /tmp/vcpkg_src/vcpkg_repository/installed/* /vcpkg/installed/ \
-    && rm -rf /tmp/vcpkg_src
+        --overlay-triplets=/tmp/vcpkg_overlay/custom-triplets \
+        --overlay-ports=/tmp/vcpkg_overlay/ports \
+        --triplet="${ARCH}-linux-none-libcxx"; \
+    cp -a /tmp/vcpkg_classic/installed/* /vcpkg/installed/; \
+    rm -rf /tmp/vcpkg_classic /tmp/vcpkg_overlay
 
 # ── Build MobilityNebula ─────────────────────────────────────────────
 ADD . /home/ubuntu/src
