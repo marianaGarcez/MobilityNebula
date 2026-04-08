@@ -218,6 +218,6 @@ jobs:
             ```bash
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.version }}
             docker run -d --name mobility-nebula \
-              -p 8081:8081 -p 4000:4000 \
+              -p 8080:8080 \
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.version }}
             ```
