@@ -34,7 +34,7 @@
 #include <ErrorHandling.hpp>
 #include <RawTupleBuffer.hpp>
 #include <SpanningTupleBuffer.hpp>
-#include <from_current.hpp>
+#include <cpptrace/from_current.hpp>
 
 namespace NES
 {

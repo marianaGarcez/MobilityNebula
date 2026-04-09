@@ -16,7 +16,7 @@
 #include <iostream>
 #include <Util/StacktraceLoader.hpp>
 #include <benchmark/benchmark.h>
-#include <cpptrace.hpp>
+#include <cpptrace/cpptrace.hpp>
 
 /// This Benchmark shows that collecting and resolving a stacktrace is
 /// about 100 times slower if the result is cached. If the result is not
