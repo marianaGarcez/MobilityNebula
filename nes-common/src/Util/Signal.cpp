@@ -21,7 +21,7 @@
 #include <cpptrace/cpptrace.hpp>
 #include <fmt/base.h>
 #include <ErrorHandling.hpp>
-#include <utils.hpp>
+#include <cpptrace/utils.hpp>
 
 namespace
 {

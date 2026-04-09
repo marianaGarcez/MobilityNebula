@@ -56,7 +56,7 @@
 #include <LegacyOptimizer.hpp>
 #include <Repl.hpp>
 #include <Thread.hpp>
-#include <utils.hpp>
+#include <cpptrace/utils.hpp>
 
 #ifdef EMBED_ENGINE
     #include <Configurations/Util.hpp>
