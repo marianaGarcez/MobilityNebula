@@ -21,6 +21,7 @@
 #include <Util/Logger/impl/NesLogger.hpp>
 #include <Util/Signal.hpp>
 #include <cpptrace/from_current.hpp>
+#include <grpc/grpc.h>
 #include <grpcpp/security/server_credentials.h>
 #include <grpcpp/server_builder.h>
 #include <ErrorHandling.hpp>
@@ -79,6 +80,10 @@ int main(const int argc, const char* argv[])
 
             grpc::ServerBuilder builder;
             builder.SetMaxMessageSize(-1);
+            /// Q9 / kNN queries serialize to ~18 KB, exceeding gRPC's default 16 KB
+            /// per-metadata-value limit. Raise it to 16 MB so the worker accepts
+            /// large logical query plans sent via the SubmitQuery RPC metadata.
+            builder.AddChannelArgument(GRPC_ARG_MAX_METADATA_SIZE, 16 * 1024 * 1024);
             builder.AddListeningPort(configuration->grpcAddressUri.getValue(), grpc::InsecureServerCredentials());
             builder.RegisterService(&workerService);
             grpc::EnableDefaultHealthCheckService(true);

@@ -27,6 +27,16 @@
 #include <cpptrace/basic.hpp>
 #include <cpptrace/cpptrace.hpp>
 #include <cpptrace/exceptions.hpp>
+
+// Compatibility shim: CPPTRACE_CATCH_ALT was added in cpptrace ≥0.8 to support
+// multiple catch blocks after CPPTRACE_TRY. Older versions (shipped in some x86
+// dev images) only define CPPTRACE_TRY / CPPTRACE_CATCH. When the macro is
+// missing, fall back to a plain catch — stack traces from this handler lose the
+// cpptrace enhancement but compilation succeeds on all platforms.
+#ifndef CPPTRACE_CATCH_ALT
+#define CPPTRACE_CATCH_ALT(...) catch(__VA_ARGS__)
+#endif
+
 #include <fmt/core.h>
 #include <fmt/format.h>
 

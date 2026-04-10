@@ -27,9 +27,11 @@
 #include <Serialization/QueryPlanSerializationUtil.hpp>
 #include <Util/Logger/Logger.hpp>
 #include <google/protobuf/empty.pb.h>
+#include <grpc/grpc.h>
 #include <grpcpp/client_context.h>
 #include <grpcpp/create_channel.h> /// Both are needed, clang-tidy complains otherwise
 #include <grpcpp/security/credentials.h>
+#include <grpcpp/support/channel_arguments.h>
 #include <grpcpp/support/status.h>
 #include <magic_enum/magic_enum.hpp>
 #include <ErrorHandling.hpp>
@@ -39,8 +41,25 @@
 
 namespace NES
 {
+namespace
+{
+/// Build gRPC channel arguments that match the server's increased limits.
+/// Q9 / kNN queries serialize to ~18 KB, exceeding gRPC's default 16 KB
+/// per-metadata-value limit; we also bump the message-size limits for symmetry
+/// with the server's SetMaxMessageSize(-1).
+grpc::ChannelArguments largePlanChannelArgs()
+{
+    grpc::ChannelArguments args;
+    args.SetMaxReceiveMessageSize(64 * 1024 * 1024);
+    args.SetMaxSendMessageSize(64 * 1024 * 1024);
+    args.SetInt(GRPC_ARG_MAX_METADATA_SIZE, 16 * 1024 * 1024);
+    return args;
+}
+}
+
 GRPCQuerySubmissionBackend::GRPCQuerySubmissionBackend(WorkerConfig config)
-    : stub{WorkerRPCService::NewStub(grpc::CreateChannel(config.grpc.getRawValue(), grpc::InsecureChannelCredentials()))}
+    : stub{WorkerRPCService::NewStub(grpc::CreateCustomChannel(
+          config.grpc.getRawValue(), grpc::InsecureChannelCredentials(), largePlanChannelArgs()))}
     , workerConfig{std::move(config)}
 {
     if (workerConfig.config.isExplicitlySet())
