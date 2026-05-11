@@ -10,7 +10,7 @@ query: |
 
 sinks:
   - name: brake_alerts_stream
-    type: MQTTSink
+    type: MQTT
     schema:
       - { name: GPS_DATA$START,     type: UINT64  }
       - { name: GPS_DATA$END,       type: UINT64  }
