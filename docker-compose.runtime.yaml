@@ -10,17 +10,34 @@ services:
       - nes-single-node-worker --worker.query_engine.number_of_worker_threads=$$NES_WORKER_THREADS
     ports:
       - "8080:8080"
+    volumes:
+      - ./Queries:/workspace/Queries:ro
+      - ./Output:/workspace/Output
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30s
 
   query-registration:
     image: ${NES_RUNTIME_IMAGE:-marianamgarcez/mobility-nebula:runtime}
     depends_on:
-      - nes-worker
+      nes-worker:
+        condition: service_healthy
+    volumes:
+      - ./Queries:/workspace/Queries:ro
     command:
       - /bin/bash
       - -c
       - |
         set -euo pipefail
+        QUERY_FILE="/workspace/Queries/${NES_QUERY_FILE:-Query1-csv.yaml}"
+        if [[ ! -f "$$QUERY_FILE" ]]; then
+            echo "Query file $$QUERY_FILE not found. Mount the deploy bundle's Queries/ directory or set NES_QUERY_FILE." >&2
+            exit 1
+        fi
         for i in {1..60}; do
           if (echo > /dev/tcp/nes-worker/8080) >/dev/null 2>&1; then
             break
@@ -28,5 +45,7 @@ services:
           echo "Waiting for nes-worker to be reachable..."
           sleep 1
         done
-        nes-nebuli -d -s nes-worker:8080 -w register -x -i /workspace/Queries/Query1-csv.yaml
-    restart: "no"
+        nes-nebuli -d -s nes-worker:8080 -w register -x -i "$$QUERY_FILE"
+        echo "Query registered ($$QUERY_FILE); holding container so Docker does not drop the restart policy on success."
+        exec tail -f /dev/null
+    restart: unless-stopped

@@ -1,0 +1,322 @@
+/*
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        https://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+*/
+
+#include <MQTTSink.hpp>
+
+#include <algorithm>
+#include <chrono>
+#include <memory>
+#include <filesystem>
+#include <ostream>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <utility>
+
+#include <fmt/chrono.h>
+#include <fmt/format.h>
+#include <mqtt/async_client.h>
+#include <mqtt/exception.h>
+#include <mqtt/message.h>
+
+#include <Configurations/Descriptor.hpp>
+#include <Runtime/TupleBuffer.hpp>
+#include <Sinks/Sink.hpp>
+#include <Sinks/SinkDescriptor.hpp>
+#include <SinksParsing/JSONFormat.hpp>
+#include <ErrorHandling.hpp>
+#include <PipelineExecutionContext.hpp>
+#include <SinkRegistry.hpp>
+#include <SinkValidationRegistry.hpp>
+
+namespace NES
+{
+
+MQTTSink::Callback::Callback(std::string serverUri) : targetServerUri(std::move(serverUri))
+{
+}
+
+void MQTTSink::Callback::connected(const std::string& cause)
+{
+    NES_INFO("MQTTSink: Connected to {}{}.", targetServerUri, cause.empty() ? "" : fmt::format(" (cause: {})", cause));
+}
+
+void MQTTSink::Callback::connection_lost(const std::string& cause)
+{
+    NES_WARNING("MQTTSink: Connection to {} lost (cause: {}).", targetServerUri, cause.empty() ? "<unknown>" : cause);
+}
+
+void MQTTSink::Callback::delivery_complete(mqtt::delivery_token_ptr token)
+{
+    const auto count = ++deliveredCount;
+    if (token)
+    {
+        NES_DEBUG(
+            "MQTTSink: delivery {} completed (token id: {}, message size: {}).",
+            count,
+            token->get_message_id(),
+            token->get_message() ? token->get_message()->to_string().size() : 0);
+    }
+    else
+    {
+        NES_DEBUG("MQTTSink: delivery {} completed (token unavailable).", count);
+    }
+}
+
+MQTTSink::MQTTSink(const SinkDescriptor& sinkDescriptor)
+    : Sink()
+    , serverUri(sinkDescriptor.getFromConfig(MQTTSinkConfig::SERVER_URI))
+    , clientId(sinkDescriptor.getFromConfig(MQTTSinkConfig::CLIENT_ID))
+    , topic(sinkDescriptor.getFromConfig(MQTTSinkConfig::TOPIC))
+    , username(sinkDescriptor.tryGetFromConfig(MQTTSinkConfig::USERNAME))
+    , password(sinkDescriptor.tryGetFromConfig(MQTTSinkConfig::PASSWORD))
+    , qos(sinkDescriptor.getFromConfig(MQTTSinkConfig::QOS))
+    , cleanSession(sinkDescriptor.getFromConfig(MQTTSinkConfig::CLEAN_SESSION))
+    , persistenceDir(sinkDescriptor.tryGetFromConfig(MQTTSinkConfig::PERSISTENCE_DIR))
+    , maxInflight(sinkDescriptor.tryGetFromConfig(MQTTSinkConfig::MAX_INFLIGHT))
+    , useTls(sinkDescriptor.getFromConfig(MQTTSinkConfig::USE_TLS))
+    , tlsCaCertPath(sinkDescriptor.tryGetFromConfig(MQTTSinkConfig::TLS_CA_CERT))
+    , tlsClientCertPath(sinkDescriptor.tryGetFromConfig(MQTTSinkConfig::TLS_CLIENT_CERT))
+    , tlsClientKeyPath(sinkDescriptor.tryGetFromConfig(MQTTSinkConfig::TLS_CLIENT_KEY))
+    , tlsAllowInsecure(sinkDescriptor.getFromConfig(MQTTSinkConfig::TLS_ALLOW_INSECURE))
+{
+    // Resolve input format (default provided by validator is CSV)
+    switch (const auto inputFormat = sinkDescriptor.getFromConfig(MQTTSinkConfig::INPUT_FORMAT))
+    {
+        case InputFormat::CSV:
+            formatter = std::make_unique<CSVFormat>(*sinkDescriptor.getSchema());
+            break;
+        case InputFormat::JSON:
+            formatter = std::make_unique<JSONFormat>(*sinkDescriptor.getSchema());
+            break;
+        default:
+            throw UnknownSinkFormat(fmt::format("Sink format: {} not supported.", magic_enum::enum_name(inputFormat)));
+    }
+}
+
+std::ostream& MQTTSink::toString(std::ostream& str) const
+{
+    str << fmt::format("MQTTSink(serverURI: {}, clientId: {}, topic: {}, qos: {})", serverUri, clientId, topic, qos);
+    return str;
+}
+
+void MQTTSink::start(PipelineExecutionContext&)
+{
+    if (persistenceDir.has_value() && !persistenceDir->empty())
+    {
+        std::error_code ec;
+        std::filesystem::create_directories(*persistenceDir, ec);
+        if (ec)
+        {
+            NES_WARNING("MQTTSink: Failed creating persistence directory '{}': {}", *persistenceDir, ec.message());
+        }
+        client = std::make_unique<mqtt::async_client>(serverUri, clientId, *persistenceDir);
+    }
+    else
+    {
+        client = std::make_unique<mqtt::async_client>(serverUri, clientId);
+    }
+
+    try
+    {
+        const bool effectiveCleanSession = qos == 2 ? false : cleanSession;
+        if (qos == 2 && cleanSession)
+        {
+            NES_WARNING("MQTTSink: Overriding cleanSession=true to false for QoS2 to ensure persistent session completion.");
+        }
+        /// Per-attempt connect timeout keeps the retry loop responsive when the broker is unreachable.
+        constexpr auto perAttemptConnectTimeout = std::chrono::seconds{5};
+        auto optionsBuilder = mqtt::connect_options_builder()
+            .automatic_reconnect(true)
+            .connect_timeout(perAttemptConnectTimeout)
+            .clean_session(effectiveCleanSession);
+
+        const int32_t configuredMaxInflight = maxInflight.value_or(0);
+        if (configuredMaxInflight > 0)
+        {
+            optionsBuilder.max_inflight(configuredMaxInflight);
+        }
+        else if (qos == 2)
+        {
+            optionsBuilder.max_inflight(DEFAULT_MAX_INFLIGHT_QOS2);
+            NES_INFO(
+                "MQTTSink: QoS2 enabled without 'maxInflight'; applying default {} inflight messages.",
+                DEFAULT_MAX_INFLIGHT_QOS2);
+        }
+
+        // Add authentication if username is provided
+        if (username.has_value() && !username->empty()) {
+            optionsBuilder.user_name(*username);
+            if (password.has_value()) {
+                optionsBuilder.password(*password);
+            }
+        }
+
+        if (useTls)
+        {
+            auto sslBuilder = mqtt::ssl_options_builder();
+            if (tlsCaCertPath && !tlsCaCertPath->empty())
+            {
+                sslBuilder.trust_store(*tlsCaCertPath);
+            }
+            if (tlsClientCertPath && !tlsClientCertPath->empty())
+            {
+                sslBuilder.key_store(*tlsClientCertPath);
+            }
+            if (tlsClientKeyPath && !tlsClientKeyPath->empty())
+            {
+                sslBuilder.private_key(*tlsClientKeyPath);
+            }
+            sslBuilder.enable_server_cert_auth(!tlsAllowInsecure);
+            optionsBuilder.ssl(sslBuilder.finalize());
+        }
+
+        const auto connectOptions = optionsBuilder.finalize();
+
+        clientCallback = std::make_shared<Callback>(serverUri);
+        client->set_callback(*clientCallback);
+
+        /// Retry the initial connect: paho's automatic_reconnect only triggers AFTER a successful
+        /// connect, so on edge devices that are power-cycled before the broker is up, a single-shot
+        /// connect would tear the query down. Bounded retry budget so a permanently down broker is
+        /// still surfaced as a query failure rather than hanging the worker forever.
+        constexpr auto retryBudget = std::chrono::minutes{2};
+        constexpr auto initialBackoff = std::chrono::milliseconds{500};
+        constexpr auto maxBackoff = std::chrono::seconds{10};
+        const auto deadline = std::chrono::steady_clock::now() + retryBudget;
+        auto backoff = initialBackoff;
+        std::string lastError;
+        bool connected = false;
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            try
+            {
+                client->connect(connectOptions)->wait();
+                connected = true;
+                break;
+            }
+            catch (const mqtt::exception& e)
+            {
+                lastError = e.what();
+                NES_WARNING("MQTTSink: initial connect to {} failed ({}); retrying in {}.", serverUri, lastError, backoff);
+            }
+            std::this_thread::sleep_for(backoff);
+            backoff = std::min(backoff * 2, std::chrono::milliseconds{maxBackoff});
+        }
+        if (!connected)
+        {
+            throw CannotOpenSink("Initial connect to {} did not succeed within {}: {}", serverUri, retryBudget, lastError);
+        }
+    }
+    catch (const mqtt::exception& e)
+    {
+        throw CannotOpenSink(e.what());
+    }
+}
+
+void MQTTSink::stop(PipelineExecutionContext&)
+{
+    try
+    {
+        client->disconnect()->wait();
+        clientCallback.reset();
+    }
+    catch (const mqtt::exception& e)
+    {
+        throw CannotOpenSink("When closing mqtt sink: {}", e.what());
+    }
+}
+
+void MQTTSink::execute(const TupleBuffer& inputBuffer, PipelineExecutionContext&)
+{
+    if (inputBuffer.getNumberOfTuples() == 0)
+    {
+        return;
+    }
+
+    const std::string fBuf = formatter->getFormattedBuffer(inputBuffer);
+    const mqtt::message_ptr message = mqtt::make_message(topic, fBuf);
+    message->set_qos(qos);
+
+    /// Do not pre-check is_connected(): paho's automatic_reconnect runs in the background, so a
+    /// momentary !is_connected() during a broker hiccup would otherwise tear the whole query down.
+    /// We let publish() do the work and only react to actual publish failures.
+    ///
+    /// QoS 0 is fire-and-forget. With QoS >= 1, paho will queue the message in the client and
+    /// flush it on reconnect (especially when persistenceDir is configured), so a brief outage is
+    /// recovered transparently.
+    try
+    {
+        auto token = client->publish(message);
+        if (qos > 0)
+        {
+            token->wait();
+        }
+    }
+    catch (const mqtt::exception& e)
+    {
+        if (!client->is_connected())
+        {
+            NES_WARNING(
+                "MQTTSink: publish to {} failed while disconnected (reason {}: {}); dropping buffer and waiting for "
+                "automatic_reconnect to restore the session.",
+                serverUri,
+                e.get_reason_code(),
+                e.what());
+            return;
+        }
+        throw CannotOpenSink("MQTT publish failed with error [{}]: {}", e.get_reason_code(), e.what());
+    }
+    catch (const std::exception& e)
+    {
+        throw CannotOpenSink("Failed to publish to MQTT: {}", e.what());
+    }
+    catch (...)
+    {
+        throw wrapExternalException();
+    }
+}
+
+DescriptorConfig::Config MQTTSink::validateAndFormat(std::unordered_map<std::string, std::string> config)
+{
+    const bool cleanSessionProvided = config.contains(std::string(MQTTSinkConfig::CLEAN_SESSION));
+    auto validated = DescriptorConfig::validateAndFormat<MQTTSinkConfig>(std::move(config), NAME);
+
+    if (!cleanSessionProvided)
+    {
+        const auto qosIt = validated.find(std::string(MQTTSinkConfig::QOS));
+        if (qosIt != validated.end())
+        {
+            const auto qosValue = std::get<int32_t>(qosIt->second);
+            if (qosValue == 2)
+            {
+                validated[std::string(MQTTSinkConfig::CLEAN_SESSION)] = false;
+            }
+        }
+    }
+
+    return validated;
+}
+
+SinkValidationRegistryReturnType RegisterMQTTSinkValidation(SinkValidationRegistryArguments sinkConfig)
+{
+    return MQTTSink::validateAndFormat(std::move(sinkConfig.config));
+}
+
+SinkRegistryReturnType RegisterMQTTSink(SinkRegistryArguments sinkRegistryArguments)
+{
+    return std::make_unique<MQTTSink>(sinkRegistryArguments.sinkDescriptor);
+}
+
+}

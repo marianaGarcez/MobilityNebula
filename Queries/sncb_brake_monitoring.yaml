@@ -57,15 +57,14 @@ logical:
 # Physical Source Configuration for TCP Stream
 physical:
   - logical: gps_data
-    sourceConfig:
-      type: TCP
-      socketHost: 0.0.0.0
-      socketPort: "9000"
-      socketDomain: AF_INET
-      socketType: SOCK_STREAM
-      decideMessageSize: TUPLE_SEPARATOR
-      tupleSeparator: "\n"
-      socketBufferSize: "8192"
-      flushIntervalMS: "100"
-    parserConfig:
-      delimiter: ","
+    type: TCP
+    parser_config:
+      type: CSV
+      field_delimiter: ","
+      tuple_delimiter: "\n"
+    source_config:
+      socket_host: "host.docker.internal"
+      socket_port: "9000"
+      flush_interval_ms: "100"
+      connect_timeout_ms: "5000"
+      auto_reconnect: "true"

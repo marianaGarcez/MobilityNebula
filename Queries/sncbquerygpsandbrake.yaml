@@ -68,6 +68,7 @@ physical:
       socket_host: "host.docker.internal"
       socket_port: "32325"
       flush_interval_ms: "100"
+      connect_timeout_ms: "5000"
       auto_reconnect: "true"
 
   - logical: SNCB_BRAKE
@@ -80,4 +81,5 @@ physical:
       socket_host: "host.docker.internal"
       socket_port: "32324"
       flush_interval_ms: "100"
+      connect_timeout_ms: "5000"
       auto_reconnect: "true"
