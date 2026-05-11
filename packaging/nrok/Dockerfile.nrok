@@ -94,7 +94,8 @@ RUN apt-get update -y && \
     apt-get update -y && \
     apt-get install -y --no-install-recommends \
         libc++1-${LLVM_TOOLCHAIN_VERSION} \
-        libc++abi1-${LLVM_TOOLCHAIN_VERSION} && \
+        libc++abi1-${LLVM_TOOLCHAIN_VERSION} \
+        tzdata && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

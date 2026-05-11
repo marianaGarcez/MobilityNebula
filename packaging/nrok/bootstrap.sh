@@ -39,23 +39,23 @@ UNIT_DST="/etc/systemd/system/mobility-nebula-compose.service"
 
 command -v docker >/dev/null || { echo "docker is required" >&2; exit 1; }
 
+RAW_BASE="https://raw.githubusercontent.com/marianaGarcez/MobilityNebula/$REF"
+
 echo "==> Pulling $IMAGE"
 docker pull "$IMAGE"
 
-echo "==> Extracting deployment files from image"
-CID="$(docker create "$IMAGE" true)"
-trap 'docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
-
 install -d "$INSTALL_DIR" "$INSTALL_DIR/Queries" "$INSTALL_DIR/Output" "$ENV_DIR"
 
-docker cp "$CID:/workspace/docker-compose.runtime.yaml"               "$INSTALL_DIR/docker-compose.runtime.yaml"
-docker cp "$CID:/workspace/packaging/nrok/mobility-nebula-compose.service" "$UNIT_DST"
-docker cp "$CID:/workspace/packaging/nrok/compose.env.example"        "$ENV_DIR/compose.env.example"
+echo "==> Fetching deploy files from GitHub raw ($REF)"
+curl -fsSL "$RAW_BASE/docker-compose.runtime.yaml"                   -o "$INSTALL_DIR/docker-compose.runtime.yaml"
+curl -fsSL "$RAW_BASE/packaging/nrok/mobility-nebula-compose.service" -o "$UNIT_DST"
+curl -fsSL "$RAW_BASE/packaging/nrok/compose.env.example"             -o "$ENV_DIR/compose.env.example"
 
-# Copy every baked-in query yaml. Existing host queries not in the image are
-# left in place so HQ can layer per-train overrides without losing them.
+echo "==> Extracting baked-in queries from image"
+CID="$(docker create "$IMAGE" true)"
+trap 'docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
 TMPQ="$(mktemp -d)"
-docker cp "$CID:/workspace/Queries/." "$TMPQ/"
+docker cp "$CID:/opt/mobility-nebula/Queries/." "$TMPQ/" 2>/dev/null || true
 for q in "$TMPQ"/*.yaml; do
     [[ -f "$q" ]] || continue
     install -m 0644 "$q" "$INSTALL_DIR/Queries/$(basename "$q")"

@@ -1,9 +1,12 @@
 services:
   nes-worker:
-    image: ${NES_RUNTIME_IMAGE:-marianamgarcez/mobility-nebula:runtime}
+    image: ${NES_RUNTIME_IMAGE:-ghcr.io/marianagarcez/mobility-nebula:feature-upstream-update-tcp-reconnect}
     container_name: nes-worker
     environment:
       NES_WORKER_THREADS: ${NES_WORKER_THREADS:-2}
+    # Override the image ENTRYPOINT (nes-single-node-worker) so we can wrap the
+    # binary in bash and expand the thread-count env var at container start.
+    entrypoint: []
     command:
       - /bin/bash
       - -c
@@ -22,12 +25,13 @@ services:
       start_period: 30s
 
   query-registration:
-    image: ${NES_RUNTIME_IMAGE:-marianamgarcez/mobility-nebula:runtime}
+    image: ${NES_RUNTIME_IMAGE:-ghcr.io/marianagarcez/mobility-nebula:feature-upstream-update-tcp-reconnect}
     depends_on:
       nes-worker:
         condition: service_healthy
     volumes:
       - ./Queries:/workspace/Queries:ro
+    entrypoint: []
     command:
       - /bin/bash
       - -c
@@ -45,7 +49,7 @@ services:
           echo "Waiting for nes-worker to be reachable..."
           sleep 1
         done
-        nes-nebuli -d -s nes-worker:8080 -w register -x -i "$$QUERY_FILE"
-        echo "Query registered ($$QUERY_FILE); holding container so Docker does not drop the restart policy on success."
+        nes-cli -d -s nes-worker:8080 -t "$$QUERY_FILE" start
+        echo "Query submitted from $$QUERY_FILE; holding container so Docker does not drop the restart policy on success."
         exec tail -f /dev/null
     restart: unless-stopped
