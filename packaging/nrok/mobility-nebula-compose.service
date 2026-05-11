@@ -16,7 +16,7 @@ EnvironmentFile=-/etc/mobility-nebula/compose.env
 # from an earlier (manual `docker run` or older compose) deploy can't hold
 # the name "nes-worker" / "query-registration" hostage. Leading "-" makes
 # systemd ignore failure when the containers don't yet exist.
-ExecStartPre=-/usr/bin/docker rm -f nes-worker query-registration
+ExecStartPre=-/usr/bin/docker rm -f nes-worker query-registration mosquitto
 ExecStart=/usr/bin/docker compose -f docker-compose.runtime.yaml up -d --remove-orphans
 ExecStop=/usr/bin/docker compose -f docker-compose.runtime.yaml down
 Restart=on-failure
