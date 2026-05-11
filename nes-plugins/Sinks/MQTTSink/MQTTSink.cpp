@@ -74,8 +74,8 @@ void MQTTSink::Callback::delivery_complete(mqtt::delivery_token_ptr token)
     }
 }
 
-MQTTSink::MQTTSink(const SinkDescriptor& sinkDescriptor)
-    : Sink()
+MQTTSink::MQTTSink(BackpressureController backpressureController, const SinkDescriptor& sinkDescriptor)
+    : Sink(std::move(backpressureController))
     , serverUri(sinkDescriptor.getFromConfig(MQTTSinkConfig::SERVER_URI))
     , clientId(sinkDescriptor.getFromConfig(MQTTSinkConfig::CLIENT_ID))
     , topic(sinkDescriptor.getFromConfig(MQTTSinkConfig::TOPIC))
@@ -316,7 +316,7 @@ SinkValidationRegistryReturnType RegisterMQTTSinkValidation(SinkValidationRegist
 
 SinkRegistryReturnType RegisterMQTTSink(SinkRegistryArguments sinkRegistryArguments)
 {
-    return std::make_unique<MQTTSink>(sinkRegistryArguments.sinkDescriptor);
+    return std::make_unique<MQTTSink>(std::move(sinkRegistryArguments.backpressureController), sinkRegistryArguments.sinkDescriptor);
 }
 
 }

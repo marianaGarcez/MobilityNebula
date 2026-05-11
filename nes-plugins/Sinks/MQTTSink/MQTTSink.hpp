@@ -41,7 +41,7 @@ class MQTTSink : public Sink
 {
 public:
     static inline std::string NAME = "MQTT";
-    explicit MQTTSink(const SinkDescriptor& sinkDescriptor);
+    explicit MQTTSink(BackpressureController backpressureController, const SinkDescriptor& sinkDescriptor);
     ~MQTTSink() override = default;
 
     MQTTSink(const MQTTSink&) = delete;
