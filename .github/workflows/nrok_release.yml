@@ -55,40 +55,17 @@ jobs:
       - name: Determine dev image tag
         id: dev-tag
         run: |
+          # Pinned to the upstream dev image that release #21 (commit
+          # 653441a6dc) built successfully. The newer 579e2c40... tag drops
+          # nautilus::engine::CallableFunction which our HashJoin code still
+          # references — bumping this requires fixing nes-physical-operators
+          # against the new nautilus API first. Override via workflow_dispatch
+          # input `dev_image_tag` if you need to test a newer dev image.
+          PINNED_TAG="e2e95dcd6fa6d7ceb25282abd177aca7ddd8d416846b89aeb95a3ba1faf8b2ed-x64-libcxx-none"
           if [ -n "${{ inputs.dev_image_tag }}" ]; then
             echo "tag=${{ inputs.dev_image_tag }}" >> "$GITHUB_OUTPUT"
           else
-            # Try the current dependency hash first, fall back to latest upstream
-            HASH=$(docker/dependency/hash_dependencies.sh)
-            TAG="${HASH}-x64-libcxx-none"
-            HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' \
-              "https://hub.docker.com/v2/namespaces/nebulastream/repositories/nes-development/tags/${TAG}")
-            if [ "$HTTP_CODE" = "200" ]; then
-              echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-            else
-              echo "::warning::Dev image for hash ${HASH} not found, using latest known upstream tag"
-              # Paginate DockerHub API to find the latest x64-libcxx-none tag
-              LATEST_TAG=""
-              URL="https://hub.docker.com/v2/namespaces/nebulastream/repositories/nes-development/tags?page_size=100"
-              for i in 1 2 3; do
-                LATEST_TAG=$(curl -s "$URL" \
-                  | python3 -c "
-          import sys, json
-          data = json.load(sys.stdin)
-          tags = data.get('results', [])
-          x64 = [t['name'] for t in tags if 'x64-libcxx-none' in t['name']]
-          print(x64[0] if x64 else '')")
-                [ -n "$LATEST_TAG" ] && break
-                URL="https://hub.docker.com/v2/namespaces/nebulastream/repositories/nes-development/tags?page_size=100&page=$((i+1))"
-              done
-              if [ -n "$LATEST_TAG" ]; then
-                echo "::notice::Using upstream dev image: ${LATEST_TAG}"
-                echo "tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
-              else
-                echo "::error::No x64 dev image found on DockerHub"
-                exit 1
-              fi
-            fi
+            echo "tag=${PINNED_TAG}" >> "$GITHUB_OUTPUT"
           fi
 
   # ─── Build Docker image and push to GHCR ──────────────────────────
