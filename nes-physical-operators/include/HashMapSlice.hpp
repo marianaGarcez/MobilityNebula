@@ -23,7 +23,7 @@
 #include <Identifiers/Identifiers.hpp>
 #include <Nautilus/Interface/HashMap/HashMap.hpp>
 #include <SliceStore/Slice.hpp>
-#include <Engine.hpp>
+#include <nautilus/Engine.hpp>
 
 namespace NES
 {
